@@ -6,9 +6,9 @@ Smart Recruit is an enterprise-grade AI and Natural Language Processing recruitm
 
 ---
 
-## 📌 Executive Architecture & 5-Step Pipeline
+## 📌 Executive Architecture & 5-Step Workflow
 
-As presented in the system architecture, Smart Recruit implements an end-to-end continuous evaluation pipeline:
+As presented in the system architecture, Smart Recruit implements an end-to-end continuous evaluation workflow:
 
 ```
 [ 1. Resume ] ➔ [ 2. AI / NLP ] ➔ [ 3. Ranking ] ➔ [ 4. Interview ] ➔ [ 5. Score ]
@@ -22,7 +22,7 @@ As presented in the system architecture, Smart Recruit implements an end-to-end 
 
 ---
 
-## 🚀 Key Modules (Slide 6)
+## 🚀 Key Modules Architecture
 
 The platform is engineered around **8 Core Modules**:
 
@@ -69,7 +69,7 @@ The platform is engineered around **8 Core Modules**:
 
 ---
 
-## 🛡️ Sustainability & Ethics (Slide 5)
+## 🛡️ Sustainability & Ethics Framework
 
 Smart Recruit is built around **6 Responsible AI Pillars**:
 
@@ -82,7 +82,7 @@ Smart Recruit is built around **6 Responsible AI Pillars**:
 
 ---
 
-## 💼 Market Potential & Business Model (Slide 4)
+## 💼 Market Potential & Business Model
 
 ### Target Segments:
 - **Companies & HR**: Automates screening to accelerate hiring velocity and consistency.

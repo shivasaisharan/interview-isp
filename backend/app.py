@@ -536,7 +536,7 @@ def compute_accurate_candidate_assessment(user_answers, jd_text, resume_text, ai
         "python", "react", "docker", "pytorch", "tensorflow", "kubernetes", "sql", "api",
         "rest", "microservices", "deep learning", "machine learning", "nlp", "transformers",
         "javascript", "typescript", "git", "ci/cd", "postgresql", "fastapi", "flask",
-        "architecture", "pipeline", "optimization", "data structures", "algorithms",
+        "architecture", "workflow", "optimization", "data structures", "algorithms",
         "testing", "aws", "cloud", "scaling", "cache", "redis", "database", "system design"
     ]
     target_competencies = [kw for kw in common_keywords if kw in jd_lower]

@@ -271,7 +271,7 @@ def seed_default_data(conn):
             "Senior",
             "San Francisco, CA / Remote",
             json.dumps(["python", "tensorflow", "pytorch", "scikit-learn", "machine learning", "deep learning", "nlp", "docker", "rest api"]),
-            """We are seeking a Senior AI/ML Engineer to lead development of scalable deep learning architectures, LLM fine-tuning, and production-grade NLP pipelines.
+            """We are seeking a Senior AI/ML Engineer to lead development of scalable deep learning architectures, LLM fine-tuning, and production-grade NLP systems.
 Requirements:
 - 4+ years hands-on experience in Python, PyTorch, TensorFlow, and Scikit-Learn.
 - Experience with Natural Language Processing (NLP), Transformers, and Vector Search.
@@ -337,7 +337,7 @@ Requirements:
             "B.S. in Computer Science, Stanford University",
             4.5,
             json.dumps(["python", "pytorch", "tensorflow", "machine learning", "nlp", "docker", "rest api", "git", "scikit-learn"]),
-            """Alex Chen - Machine Learning Specialist. 4.5 years experience building production ML and NLP pipelines. Experienced with PyTorch, TensorFlow, HuggingFace transformers, Docker, and REST API deployment.""",
+            """Alex Chen - Machine Learning Specialist. 4.5 years experience building production ML and NLP systems. Experienced with PyTorch, TensorFlow, HuggingFace transformers, Docker, and REST API deployment.""",
             "Candidate #401"
         ),
         (
@@ -480,7 +480,7 @@ Requirements:
         'Demonstrated deep understanding of PyTorch tensor operations, transformer attention mechanisms, and model pruning strategies. Articulate explanations with real-world troubleshooting examples.',
         'Could elaborate further on distributed model sharding across multiple GPU nodes and fault-tolerance protocols.',
         'Minor gap in large-scale multi-node cluster orchestration (Kubernetes/Slurm). Core AI & NLP skills are outstanding.',
-        'Study Megatron-LM and DeepSpeed pipeline parallelism patterns before scaling up to 100B+ parameter pipelines.',
+        'Study Megatron-LM and DeepSpeed distributed model parallelism patterns before scaling up to 100B+ parameter models.',
         ?,
         ?,
         'Shortlist',

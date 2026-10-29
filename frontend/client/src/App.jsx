@@ -18,108 +18,144 @@ const API_URL = 'http://localhost:5001';
 
 
 // ==========================================
-// FRONT LOGIN PAGE (Candidate & HR Portal Gateway)
+// FRONT LOGIN PAGE (Two Dedicated Sign-Ins: Candidate vs HR)
 // ==========================================
 function LoginPage({ onLogin, jobsList }) {
-  const [loginRole, setLoginRole] = useState('candidate'); // 'candidate' | 'recruiter'
-  const [email, setEmail] = useState('alex.chen@applicant.io');
-  const [password, setPassword] = useState('candidate123');
-  const [showPassword, setShowPassword] = useState(false);
-  const [selectedOrg, setSelectedOrg] = useState('Companies & HR');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  // Candidate Portal Credentials
+  const [candEmail, setCandEmail] = useState('alex.chen@applicant.io');
+  const [candPassword, setCandPassword] = useState('candidate123');
+  const [showCandPass, setShowCandPass] = useState(false);
+  const [candLoading, setCandLoading] = useState(false);
+  const [candError, setCandError] = useState(null);
 
-  const handleRoleTabChange = (role) => {
-    setLoginRole(role);
-    setError(null);
-    if (role === 'candidate') {
-      setEmail('alex.chen@applicant.io');
-      setPassword('candidate123');
-    } else {
-      setEmail('sarah.hr@smartrecruit.io');
-      setPassword('recruiter123');
-    }
-  };
+  // HR Recruiter Credentials
+  const [hrEmail, setHrEmail] = useState('sarah.hr@smartrecruit.io');
+  const [hrPassword, setHrPassword] = useState('recruiter123');
+  const [showHrPass, setShowHrPass] = useState(false);
+  const [hrOrg, setHrOrg] = useState('Companies & HR');
+  const [hrLoading, setHrLoading] = useState(false);
+  const [hrError, setHrError] = useState(null);
 
-  const handleSubmit = async (e) => {
+  // Handle Candidate Sign-In
+  const handleCandidateSubmit = async (e) => {
     if (e) e.preventDefault();
-    if (!email.trim()) {
-      setError('Please enter your email address.');
+    if (!candEmail.trim()) {
+      setCandError('Please enter candidate email.');
       return;
     }
-    setLoading(true);
-    setError(null);
+    setCandLoading(true);
+    setCandError(null);
     try {
       const res = await axios.post(`${API_URL}/api/auth/login`, {
-        email,
-        role: loginRole,
-        password
+        email: candEmail,
+        role: 'candidate',
+        password: candPassword,
       });
       if (res.data && res.data.user) {
         onLogin(res.data.user);
       } else {
-        const fallback = {
-          id: loginRole === 'candidate' ? 'u-candidate-1' : 'u-recruiter-1',
-          name: loginRole === 'candidate' ? 'Alex Chen' : 'Sarah Jenkins',
-          email,
-          role: loginRole,
-          organization: loginRole === 'candidate' ? 'Applicant Pool' : 'Smart Recruit Global',
-          avatar: loginRole === 'candidate' ? 'AC' : 'SJ'
-        };
-        onLogin(fallback);
+        onLogin({
+          id: 'u-candidate-1',
+          name: candEmail.includes('elena') ? 'Elena Rostova' : 'Alex Chen',
+          email: candEmail,
+          role: 'candidate',
+          organization: 'Applicant Pool',
+          avatar: candEmail.includes('elena') ? 'ER' : 'AC',
+        });
       }
     } catch (err) {
-      console.warn("API Login notice:", err.message);
-      const fallback = {
-        id: loginRole === 'candidate' ? 'u-candidate-1' : 'u-recruiter-1',
-        name: loginRole === 'candidate' ? (email.includes('elena') ? 'Elena Rostova' : 'Alex Chen') : 'Sarah Jenkins',
-        email,
-        role: loginRole,
-        organization: loginRole === 'candidate' ? 'Applicant Pool' : 'Smart Recruit Global',
-        avatar: loginRole === 'candidate' ? (email.includes('elena') ? 'ER' : 'AC') : 'SJ'
-      };
-      onLogin(fallback);
+      onLogin({
+        id: 'u-candidate-1',
+        name: candEmail.includes('elena') ? 'Elena Rostova' : 'Alex Chen',
+        email: candEmail,
+        role: 'candidate',
+        organization: 'Applicant Pool',
+        avatar: candEmail.includes('elena') ? 'ER' : 'AC',
+      });
     } finally {
-      setLoading(false);
+      setCandLoading(false);
     }
   };
 
-  const handleQuickLogin = (personaType) => {
-    if (personaType === 'alex') {
+  // Handle HR Recruiter Sign-In
+  const handleRecruiterSubmit = async (e) => {
+    if (e) e.preventDefault();
+    if (!hrEmail.trim()) {
+      setHrError('Please enter corporate HR email.');
+      return;
+    }
+    setHrLoading(true);
+    setHrError(null);
+    try {
+      const res = await axios.post(`${API_URL}/api/auth/login`, {
+        email: hrEmail,
+        role: 'recruiter',
+        password: hrPassword,
+      });
+      if (res.data && res.data.user) {
+        onLogin(res.data.user);
+      } else {
+        onLogin({
+          id: 'u-recruiter-1',
+          name: 'Sarah Jenkins',
+          email: hrEmail,
+          role: 'recruiter',
+          organization: hrOrg || 'Smart Recruit Global',
+          avatar: 'SJ',
+        });
+      }
+    } catch (err) {
+      onLogin({
+        id: 'u-recruiter-1',
+        name: 'Sarah Jenkins',
+        email: hrEmail,
+        role: 'recruiter',
+        organization: hrOrg || 'Smart Recruit Global',
+        avatar: 'SJ',
+      });
+    } finally {
+      setHrLoading(false);
+    }
+  };
+
+  const handleQuickCandidate = (persona) => {
+    if (persona === 'alex') {
       onLogin({
         id: 'u-candidate-1',
         name: 'Alex Chen',
         email: 'alex.chen@applicant.io',
         role: 'candidate',
         organization: 'Apex Engineering College / Placement Cell',
-        avatar: 'AC'
+        avatar: 'AC',
       });
-    } else if (personaType === 'elena') {
+    } else if (persona === 'elena') {
       onLogin({
         id: 'u-candidate-2',
         name: 'Elena Rostova',
         email: 'elena.rostova@applicant.io',
         role: 'candidate',
         organization: 'Full Stack Engineering Applicant',
-        avatar: 'ER'
-      });
-    } else if (personaType === 'sarah') {
-      onLogin({
-        id: 'u-recruiter-1',
-        name: 'Sarah Jenkins',
-        email: 'sarah.hr@smartrecruit.io',
-        role: 'recruiter',
-        organization: 'Smart Recruit Global (Talent HQ)',
-        avatar: 'SJ'
+        avatar: 'ER',
       });
     }
+  };
+
+  const handleQuickRecruiter = () => {
+    onLogin({
+      id: 'u-recruiter-1',
+      name: 'Sarah Jenkins',
+      email: 'sarah.hr@smartrecruit.io',
+      role: 'recruiter',
+      organization: 'Smart Recruit Global (Talent HQ)',
+      avatar: 'SJ',
+    });
   };
 
   return (
     <div className="min-h-screen bg-slate-950 font-sans text-slate-100 flex flex-col justify-between selection:bg-indigo-500 selection:text-white">
       {/* Top Navbar */}
       <header className="border-b border-slate-800/80 bg-slate-900/60 backdrop-blur-md px-6 py-4 sticky top-0 z-20">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+        <div className="max-w-7xl mx-auto flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-emerald-400 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
               <Brain className="w-6 h-6" />
@@ -135,246 +171,326 @@ function LoginPage({ onLogin, jobsList }) {
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center space-x-3 text-xs text-slate-400">
-            <span className="flex items-center space-x-1">
+          <div className="hidden md:flex items-center space-x-4 text-xs text-slate-400">
+            <span className="flex items-center space-x-1.5">
               <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
               <span>S-BERT Semantic Fit</span>
             </span>
             <span className="text-slate-700">•</span>
-            <span className="flex items-center space-x-1">
+            <span className="flex items-center space-x-1.5">
               <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
               <span>Face-to-Face Voice AI</span>
             </span>
             <span className="text-slate-700">•</span>
-            <span className="flex items-center space-x-1">
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
-              <span>Human Oversight Decision Engine</span>
+            <span className="flex items-center space-x-1.5">
+              <CheckCircle className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Recruiter Decision Engine</span>
             </span>
           </div>
         </div>
       </header>
 
-      {/* Main Login Card Section */}
-      <main className="flex-1 flex items-center justify-center p-4 sm:p-6 md:p-10 relative overflow-hidden">
+      {/* Main Two Dedicated Portals Section */}
+      <main className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 md:p-10 relative overflow-hidden">
         {/* Background decorative glows */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
 
-        <div className="max-w-2xl w-full bg-slate-900/90 backdrop-blur-xl border border-slate-800 rounded-3xl p-6 sm:p-8 md:p-10 shadow-2xl relative z-10 space-y-6">
+        <div className="max-w-6xl w-full space-y-6 relative z-10">
           {/* Header Title */}
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-indigo-950/80 border border-indigo-800 text-indigo-300 text-xs font-semibold">
-              <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-              <span>Select Your Portal to Continue</span>
+            <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-slate-900 border border-slate-800 text-slate-300 text-xs font-semibold">
+              <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+              <span>Two Independent Portals • Distinct Interfaces & Roles</span>
             </div>
             <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-white">
-              Welcome to Smart Recruit
+              Smart Recruit Portal Gateway
             </h1>
-            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto">
-              Choose your role below to log in as a Candidate or HR Recruiter with tailored workflows.
+            <p className="text-xs sm:text-sm text-slate-400 max-w-2xl mx-auto leading-relaxed">
+              Candidate and HR portals are completely separate. Candidates apply, take mock interviews, and view scorecards. HR recruiters manage jobs, view applicants, and make hiring decisions.
             </p>
           </div>
 
-          {/* Dual Role Selector Tabs */}
-          <div className="grid grid-cols-2 gap-2 p-1.5 bg-slate-950/80 rounded-2xl border border-slate-800">
-            <button
-              type="button"
-              onClick={() => handleRoleTabChange('candidate')}
-              className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                loginRole === 'candidate'
-                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-900/40 ring-1 ring-emerald-400/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
-            >
-              <GraduationCap className="w-4 h-4" />
-              <span>Candidate Login</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => handleRoleTabChange('recruiter')}
-              className={`flex items-center justify-center space-x-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                loginRole === 'recruiter'
-                  ? 'bg-gradient-to-r from-indigo-600 to-blue-600 text-white shadow-lg shadow-indigo-900/40 ring-1 ring-indigo-400/40'
-                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-              }`}
-            >
-              <Briefcase className="w-4 h-4" />
-              <span>HR & Recruiter Login</span>
-            </button>
-          </div>
-
-          {/* Role Feature Explainer */}
-          {loginRole === 'candidate' ? (
-            <div className="bg-emerald-950/30 border border-emerald-800/40 rounded-2xl p-4 text-xs text-emerald-200 space-y-1.5">
-              <div className="flex items-center space-x-2 font-bold text-emerald-300">
-                <CheckCircle className="w-4 h-4 text-emerald-400" />
-                <span>Candidate Workflow Capabilities:</span>
-              </div>
-              <ul className="list-disc list-inside text-emerald-300/80 space-y-0.5 pl-1">
-                <li>Upload or update your resume and evaluate S-BERT semantic fit.</li>
-                <li><strong>Interview Eligibility:</strong> Overall Match Score must be &gt; 50% to take the interview.</li>
-                <li>Take realistic live face-to-face AI mock interview with spoken questions and webcam preview.</li>
-                <li>Check multi-dimensional performance analysis and real-time HR hiring decision status.</li>
-              </ul>
-            </div>
-          ) : (
-            <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl p-4 text-xs text-indigo-200 space-y-1.5">
-              <div className="flex items-center space-x-2 font-bold text-indigo-300">
-                <ShieldCheck className="w-4 h-4 text-indigo-400" />
-                <span>HR & Recruiter Decision Capabilities:</span>
-              </div>
-              <ul className="list-disc list-inside text-indigo-300/80 space-y-0.5 pl-1">
-                <li>See all candidate details applied for active job openings in the ranking pool.</li>
-                <li>Review candidate performance, S-BERT semantic fit, radar scores, and full interview transcripts.</li>
-                <li><strong>HR Decision Authority:</strong> Accept & Offer Job, Shortlist, or Reject candidates at recruiter discretion.</li>
-                <li>Manage role competency requirements and post new job descriptions.</li>
-              </ul>
-            </div>
-          )}
-
-          {/* Quick 1-Click Fast Login Presets */}
-          <div className="space-y-2">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
-              1-Click Instant Test Access:
-            </span>
-            {loginRole === 'candidate' ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('alex')}
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900 text-left transition-all group"
-                >
-                  <div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs font-bold text-white group-hover:text-emerald-400">Alex Chen</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-extrabold">92% Match</span>
+          {/* TWO SIDE-BY-SIDE SEPARATED PORTAL CARDS */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+            {/* ========================================= */}
+            {/* PORTAL 1: CANDIDATE SIGN-IN PORTAL (LEFT) */}
+            {/* ========================================= */}
+            <div className="bg-slate-900/95 backdrop-blur-xl border-2 border-emerald-500/40 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-2xl shadow-emerald-950/20 relative overflow-hidden group hover:border-emerald-500/60 transition-all">
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-600/30">
+                      <GraduationCap className="w-6 h-6" />
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Senior AI / Machine Learning Applicant</p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all" />
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('elena')}
-                  className="flex items-center justify-between p-3 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-emerald-500/50 hover:bg-slate-900 text-left transition-all group"
-                >
-                  <div>
-                    <div className="flex items-center space-x-1.5">
-                      <span className="text-xs font-bold text-white group-hover:text-emerald-400">Elena Rostova</span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-extrabold">87% Match</span>
+                    <div>
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded border border-emerald-800">
+                        CANDIDATE SIGN-IN
+                      </span>
+                      <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
+                        Candidate Portal
+                      </h2>
                     </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Full Stack Software Engineer Applicant</p>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-emerald-400 group-hover:translate-x-0.5 transition-all" />
-                </button>
-              </div>
-            ) : (
-              <div>
-                <button
-                  type="button"
-                  onClick={() => handleQuickLogin('sarah')}
-                  className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900 text-left transition-all group"
-                >
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs font-bold text-white group-hover:text-indigo-400">Sarah Jenkins</span>
-                      <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-800 font-extrabold">Talent HR Lead</span>
-                    </div>
-                    <p className="text-[11px] text-slate-400 mt-0.5">Full Recruiter Hiring Authority • Candidate Rankings & Decision Engine</p>
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Dedicated interface for job seekers and students. Apply for open positions, verify your resume match score, complete the realistic AI voice interview, and review your evaluation results.
+                </p>
+
+                {/* Scope & Capabilities Box */}
+                <div className="bg-emerald-950/30 border border-emerald-800/40 rounded-2xl p-4 text-xs text-emerald-200 space-y-1.5">
+                  <div className="flex items-center space-x-2 font-bold text-emerald-300">
+                    <CheckCircle className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>Candidate Workflow Scope:</span>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-indigo-400 group-hover:translate-x-0.5 transition-all" />
-                </button>
-              </div>
-            )}
-          </div>
+                  <ul className="list-disc list-inside text-emerald-300/80 space-y-1 pl-1 text-[11px]">
+                    <li>Browse job openings and job specifications.</li>
+                    <li>Upload or update resume to check S-BERT semantic fit.</li>
+                    <li><strong>Interview Qualification:</strong> Match score must exceed <strong>50%</strong>.</li>
+                    <li>Live face-to-face AI mock interview (spoken questions & voice responses).</li>
+                    <li>View multi-dimensional scorecard and real-time HR hiring status.</li>
+                  </ul>
+                </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="space-y-4 pt-2 border-t border-slate-800">
-            {error && (
-              <div className="p-3 rounded-xl bg-rose-950/50 border border-rose-800 text-rose-300 text-xs flex items-center space-x-2">
-                <XCircle className="w-4 h-4 shrink-0 text-rose-400" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                {loginRole === 'candidate' ? 'Candidate Email' : 'Corporate HR Email'}
-              </label>
-              <input
-                type="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder={loginRole === 'candidate' ? 'candidate@example.com' : 'hr@smartrecruit.io'}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
-                >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                </button>
-              </div>
-            </div>
-
-            {loginRole === 'recruiter' && (
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Organization / Tenancy</label>
-                <select
-                  value={selectedOrg}
-                  onChange={(e) => setSelectedOrg(e.target.value)}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="Companies & HR">🏢 Corporate Companies & HR</option>
-                  <option value="Placement Cells">🎓 University Placement Cells</option>
-                  <option value="Recruitment Agencies">🤝 Recruitment Agencies</option>
-                  <option value="Startups">🚀 Startups & Scaleups</option>
-                </select>
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition-all shadow-lg ${
-                loginRole === 'candidate'
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50'
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-950/50'
-              } disabled:opacity-50`}
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Signing In...</span>
-                </>
-              ) : (
-                <>
-                  <LogIn className="w-4 h-4" />
-                  <span>
-                    {loginRole === 'candidate'
-                      ? 'Sign In to Candidate Dashboard'
-                      : 'Sign In to HR Recruiter Workspace'}
+                {/* 1-Click Fast Candidate Persona Sign-In */}
+                <div className="space-y-2">
+                  <span className="text-[10px] font-extrabold text-emerald-400 uppercase tracking-wider block">
+                    ⚡ 1-Click Candidate Test Sign-In:
                   </span>
-                </>
-              )}
-            </button>
-          </form>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleQuickCandidate('alex')}
+                      className="p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500/60 hover:bg-emerald-950/20 text-left transition-all group/btn"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white group-hover/btn:text-emerald-400">Alex Chen</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-extrabold">92% Match</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Senior AI / Machine Learning Applicant</p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleQuickCandidate('elena')}
+                      className="p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-emerald-500/60 hover:bg-emerald-950/20 text-left transition-all group/btn"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-white group-hover/btn:text-emerald-400">Elena Rostova</span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 font-extrabold">87% Match</span>
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Full Stack Software Engineer Applicant</p>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Candidate Credentials Form */}
+                <form onSubmit={handleCandidateSubmit} className="space-y-3 pt-3 border-t border-slate-800">
+                  {candError && (
+                    <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-800 text-rose-300 text-xs flex items-center space-x-2">
+                      <XCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>{candError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Candidate Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={candEmail}
+                      onChange={(e) => setCandEmail(e.target.value)}
+                      placeholder="alex.chen@applicant.io"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+                    <div className="relative">
+                      <input
+                        type={showCandPass ? 'text' : 'password'}
+                        required
+                        value={candPassword}
+                        onChange={(e) => setCandPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowCandPass(!showCandPass)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
+                      >
+                        {showCandPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={candLoading}
+                    className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition-all shadow-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/50 disabled:opacity-50"
+                  >
+                    {candLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Signing In to Candidate Portal...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4" />
+                        <span>Sign In as Candidate</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              <div className="pt-4 text-center text-[11px] text-emerald-400/80 font-medium">
+                🔒 Candidate-restricted interface (No HR switching options)
+              </div>
+            </div>
+
+            {/* ========================================= */}
+            {/* PORTAL 2: HR & RECRUITER SIGN-IN PORTAL (RIGHT) */}
+            {/* ========================================= */}
+            <div className="bg-slate-900/95 backdrop-blur-xl border-2 border-indigo-500/40 rounded-3xl p-6 sm:p-8 flex flex-col justify-between shadow-2xl shadow-indigo-950/20 relative overflow-hidden group hover:border-indigo-500/60 transition-all">
+              <div className="space-y-5">
+                {/* Header */}
+                <div className="flex items-start justify-between">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-blue-500 flex items-center justify-center text-white shadow-lg shadow-indigo-600/30">
+                      <Briefcase className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span className="text-[10px] font-extrabold uppercase tracking-widest text-indigo-400 bg-indigo-950/80 px-2.5 py-0.5 rounded border border-indigo-800">
+                        HR & RECRUITER SIGN-IN
+                      </span>
+                      <h2 className="text-xl sm:text-2xl font-black text-white mt-1">
+                        Corporate HR Portal
+                      </h2>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Dedicated workspace for Talent Acquisition and Hiring Managers. Post available jobs & specifications, view candidate rankings, evaluate interview answers, and make final hiring decisions.
+                </p>
+
+                {/* Scope & Capabilities Box */}
+                <div className="bg-indigo-950/30 border border-indigo-800/40 rounded-2xl p-4 text-xs text-indigo-200 space-y-1.5">
+                  <div className="flex items-center space-x-2 font-bold text-indigo-300">
+                    <ShieldCheck className="w-4 h-4 text-indigo-400 shrink-0" />
+                    <span>HR Recruiter Authority Scope:</span>
+                  </div>
+                  <ul className="list-disc list-inside text-indigo-300/80 space-y-1 pl-1 text-[11px]">
+                    <li>Upload available jobs, requirements, and job descriptions.</li>
+                    <li>Inspect all candidate applications, rankings, and match scores.</li>
+                    <li>Review candidate interview transcripts and radar competencies.</li>
+                    <li><strong>Hiring Authority:</strong> Accept & Offer Job, Shortlist, or Reject applicants.</li>
+                    <li>Access enterprise analytics, bias audits, and compliance logs.</li>
+                  </ul>
+                </div>
+
+                {/* 1-Click Fast HR Persona Sign-In */}
+                <div className="space-y-2">
+                  <span className="text-[10px] font-extrabold text-indigo-400 uppercase tracking-wider block">
+                    ⚡ 1-Click HR Test Sign-In:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleQuickRecruiter}
+                    className="w-full p-3 rounded-xl bg-slate-950 border border-slate-800 hover:border-indigo-500/60 hover:bg-indigo-950/20 text-left transition-all group/btn"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-white group-hover/btn:text-indigo-400">Sarah Jenkins</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-800 font-extrabold">Lead Talent HR</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Full Recruiter Hiring Authority • Candidate Rankings & Decision Engine</p>
+                  </button>
+                </div>
+
+                {/* HR Credentials Form */}
+                <form onSubmit={handleRecruiterSubmit} className="space-y-3 pt-3 border-t border-slate-800">
+                  {hrError && (
+                    <div className="p-2.5 rounded-xl bg-rose-950/50 border border-rose-800 text-rose-300 text-xs flex items-center space-x-2">
+                      <XCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                      <span>{hrError}</span>
+                    </div>
+                  )}
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Corporate HR Email</label>
+                    <input
+                      type="email"
+                      required
+                      value={hrEmail}
+                      onChange={(e) => setHrEmail(e.target.value)}
+                      placeholder="sarah.hr@smartrecruit.io"
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Password</label>
+                    <div className="relative">
+                      <input
+                        type={showHrPass ? 'text' : 'password'}
+                        required
+                        value={hrPassword}
+                        onChange={(e) => setHrPassword(e.target.value)}
+                        className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowHrPass(!showHrPass)}
+                        className="absolute right-3 top-2.5 text-slate-400 hover:text-slate-200"
+                      >
+                        {showHrPass ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">Organization / Tenancy</label>
+                    <select
+                      value={hrOrg}
+                      onChange={(e) => setHrOrg(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2 text-xs text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    >
+                      <option value="Companies & HR">🏢 Corporate Companies & HR</option>
+                      <option value="Placement Cells">🎓 University Placement Cells</option>
+                      <option value="Recruitment Agencies">🤝 Recruitment Agencies</option>
+                      <option value="Startups">🚀 Startups & Scaleups</option>
+                    </select>
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={hrLoading}
+                    className="w-full py-3 px-4 rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 transition-all shadow-lg bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-950/50 disabled:opacity-50"
+                  >
+                    {hrLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>Signing In to HR Workspace...</span>
+                      </>
+                    ) : (
+                      <>
+                        <LogIn className="w-4 h-4" />
+                        <span>Sign In as HR Recruiter</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              <div className="pt-4 text-center text-[11px] text-indigo-400/80 font-medium">
+                🛡️ HR-exclusive hiring decisions & candidate ranking access
+              </div>
+            </div>
+          </div>
         </div>
       </main>
 
@@ -498,7 +614,6 @@ export default function App() {
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         userRole={userRole}
-        handleSwitchRole={handleSwitchRole}
         targetSegment={targetSegment}
         setTargetSegment={setTargetSegment}
         pricingTier={pricingTier}
@@ -507,8 +622,8 @@ export default function App() {
         setShowAuthModal={setShowAuthModal}
       />
 
-      {/* 5-Step Visual Pipeline Stepper */}
-      <PipelineBanner activeTab={activeTab} setActiveTab={setActiveTab} userRole={userRole} />
+      {/* 5-Step Visual Workflow Stepper */}
+      <WorkflowStepsBanner activeTab={activeTab} setActiveTab={setActiveTab} userRole={userRole} />
 
       <main className="flex-1 p-4 md:p-8 max-w-7xl w-full mx-auto">
         {error && <ErrorMessage message={error} clearError={() => setError(null)} />}
@@ -659,7 +774,6 @@ function Navbar({
   activeTab,
   setActiveTab,
   userRole,
-  handleSwitchRole,
   targetSegment,
   setTargetSegment,
   pricingTier,
@@ -668,21 +782,19 @@ function Navbar({
   setShowAuthModal,
 }) {
   const recruiterTabs = [
-    { id: 'rankings', label: 'Candidate Ranking Board', icon: Users, moduleNum: '3' },
-    { id: 'jobs', label: 'Job Openings & Specs', icon: Briefcase, moduleNum: '4' },
-    { id: 'upload', label: 'Batch Resume Screening', icon: FileText, moduleNum: '2' },
-    { id: 'reports', label: 'Interviews & Decisions', icon: Award, moduleNum: '8' },
-    { id: 'scalability', label: 'Hiring Analytics & ROI', icon: TrendingUp, badge: 'ROI' },
+    { id: 'jobs', label: 'Upload & Manage Jobs', icon: Briefcase, moduleNum: 'Jobs' },
+    { id: 'rankings', label: 'Candidate Applications & Ranking', icon: Users, moduleNum: 'ATS' },
+    { id: 'reports', label: 'Interview Evaluations & Decisions', icon: Award, moduleNum: 'Decisions' },
+    { id: 'scalability', label: 'Hiring Analytics', icon: TrendingUp, badge: 'ROI' },
     { id: 'ethics', label: 'Audit & Compliance', icon: ShieldCheck, badge: 'Fairness' },
     { id: 'presentation', label: 'Architecture Overview', icon: BookOpen, badge: 'System' },
   ];
 
   const candidateTabs = [
-    { id: 'jobs', label: 'Browse Openings', icon: Briefcase, moduleNum: 'Explore' },
-    { id: 'upload', label: 'Update & Check Resume', icon: FileText, moduleNum: '50%+ Fit' },
-    { id: 'interview', label: 'Live Face-to-Face Mock', icon: Video, moduleNum: 'AI Voice' },
-    { id: 'reports', label: 'My Scorecard & Results', icon: Award, moduleNum: 'Report' },
-    { id: 'presentation', label: 'Architecture Overview', icon: BookOpen, moduleNum: 'System' },
+    { id: 'jobs', label: 'Available Jobs & Apply', icon: Briefcase, moduleNum: 'Jobs' },
+    { id: 'upload', label: 'Submit Resume & Fit Check', icon: FileText, moduleNum: 'Resume' },
+    { id: 'interview', label: 'Live Face-to-Face Interview', icon: Video, moduleNum: 'Interview' },
+    { id: 'reports', label: 'My Results & Scorecard', icon: Award, moduleNum: 'Results' },
   ];
 
   const tabs = userRole === 'candidate' ? candidateTabs : recruiterTabs;
@@ -693,7 +805,7 @@ function Navbar({
         {/* Brand */}
         <div
           className="flex items-center space-x-3 cursor-pointer"
-          onClick={() => setActiveTab(userRole === 'candidate' ? 'jobs' : 'rankings')}
+          onClick={() => setActiveTab('jobs')}
         >
           <div
             className={`w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-md ${
@@ -750,7 +862,7 @@ function Navbar({
           })}
         </nav>
 
-        {/* User Profile & Actions */}
+        {/* User Profile & Actions (NO ROLE SWITCHING BUTTON) */}
         <div className="flex items-center space-x-2">
           {/* Recruiter Segment Selector */}
           {userRole === 'recruiter' && (
@@ -767,18 +879,16 @@ function Navbar({
             </select>
           )}
 
-          {/* Quick Switch Role Pill */}
-          <button
-            onClick={() => handleSwitchRole(userRole === 'candidate' ? 'recruiter' : 'candidate')}
-            className={`px-2.5 py-1 text-xs rounded-lg font-bold border transition-all ${
+          {/* Role Status Tag */}
+          <span
+            className={`px-2.5 py-1 text-xs rounded-lg font-bold border hidden sm:inline-flex items-center ${
               userRole === 'candidate'
-                ? 'bg-indigo-50 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
-                : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                : 'bg-indigo-50 text-indigo-700 border-indigo-200'
             }`}
-            title="Switch portal interface"
           >
-            {userRole === 'candidate' ? '💼 Switch to HR' : '🎓 Switch to Candidate'}
-          </button>
+            {userRole === 'candidate' ? '🎓 Candidate Mode' : '💼 HR Decision Authority'}
+          </span>
 
           {/* Logged-In User Badge */}
           <div className="flex items-center space-x-1.5 px-2.5 py-1 bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700">
@@ -798,7 +908,7 @@ function Navbar({
           <button
             onClick={handleLogout}
             className="flex items-center space-x-1 px-2.5 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 rounded-lg text-xs font-bold transition-all shadow-sm"
-            title="Log Out and return to Login Page"
+            title="Log Out and return to Login Gateway"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Log Out</span>
@@ -810,22 +920,22 @@ function Navbar({
 }
 
 // ==========================================
-// 5-STEP VISUAL PIPELINE STEPPER
+// 5-STEP VISUAL WORKFLOW STEPPER
 // ==========================================
-function PipelineBanner({ activeTab, setActiveTab, userRole }) {
+function WorkflowStepsBanner({ activeTab, setActiveTab, userRole }) {
   const recruiterSteps = [
-    { num: 1, label: 'Resume Intake', desc: 'PDF Parsing & PII Masking', tab: 'upload', icon: FileText },
-    { num: 2, label: 'S-BERT Match', desc: 'Semantic Fit Scoring', tab: 'upload', icon: Brain },
-    { num: 3, label: 'Ranking Board', desc: 'Applicant Pool & ATS', tab: 'rankings', icon: Users },
-    { num: 4, label: 'AI Voice Screen', desc: 'Face-to-Face Meeting', tab: 'reports', icon: Video },
-    { num: 5, label: 'HR Decision', desc: 'Accept/Offer vs Reject', tab: 'reports', icon: Award },
+    { num: 1, label: 'Manage Jobs', desc: 'Post Openings & Descriptions', tab: 'jobs', icon: Briefcase },
+    { num: 2, label: 'Screen Resumes', desc: 'PDF Parsing & Semantic Fit', tab: 'upload', icon: FileText },
+    { num: 3, label: 'Applicant Pool', desc: 'Candidate Ranking & ATS', tab: 'rankings', icon: Users },
+    { num: 4, label: 'Interview Evaluations', desc: 'Voice Screen Performance', tab: 'reports', icon: Video },
+    { num: 5, label: 'Hiring Decisions', desc: 'Accept/Offer vs Reject', tab: 'reports', icon: Award },
   ];
 
   const candidateSteps = [
     { num: 1, label: 'Browse Openings', desc: 'Explore Job Requirements', tab: 'jobs', icon: Briefcase },
-    { num: 2, label: 'Update Resume', desc: 'Upload PDF & Skills', tab: 'upload', icon: FileText },
+    { num: 2, label: 'Submit Resume', desc: 'Upload PDF & Skills', tab: 'upload', icon: FileText },
     { num: 3, label: 'Fit Check (>50%)', desc: 'Verify Eligibility Score', tab: 'upload', icon: Brain },
-    { num: 4, label: 'Face-to-Face Mock', desc: 'Live Voice & Webcam Room', tab: 'interview', icon: Video },
+    { num: 4, label: 'AI Voice Interview', desc: 'Face-to-Face Voice Screen', tab: 'interview', icon: Video },
     { num: 5, label: 'Scorecard & Status', desc: 'Results & HR Decision', tab: 'reports', icon: Award },
   ];
 
@@ -862,7 +972,7 @@ function PipelineBanner({ activeTab, setActiveTab, userRole }) {
                 : 'text-indigo-400 bg-indigo-950/80 border-indigo-800'
             }`}
           >
-            {userRole === 'candidate' ? 'CANDIDATE WORKFLOW' : 'RECRUITMENT PIPELINE'}
+            {userRole === 'candidate' ? 'CANDIDATE WORKFLOW' : 'RECRUITMENT WORKFLOW'}
           </span>
           <span className="text-xs text-slate-300 font-medium hidden sm:inline">
             {userRole === 'candidate'
@@ -1117,15 +1227,27 @@ function JobsView({ jobsList, refreshJobs, setSelectedJobId, setActiveTab, setLo
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-blue-900 rounded-2xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div
+        className={`rounded-2xl p-6 md:p-8 text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 ${
+          userRole === 'candidate'
+            ? 'bg-gradient-to-r from-emerald-950 via-teal-900 to-slate-900'
+            : 'bg-gradient-to-r from-indigo-900 via-indigo-800 to-blue-900'
+        }`}
+      >
         <div>
-          <div className="flex items-center space-x-2 text-indigo-200 text-xs font-semibold mb-1">
-            <Sparkles className="w-4 h-4" />
-            <span>MODULE 4: JOB MANAGEMENT & ROLE CATALOGS</span>
+          <div className="flex items-center space-x-2 text-xs font-semibold mb-1">
+            <Sparkles className="w-4 h-4 text-amber-300" />
+            <span className={userRole === 'candidate' ? 'text-emerald-200' : 'text-indigo-200'}>
+              {userRole === 'candidate' ? 'CANDIDATE APPLICATION PORTAL' : 'MODULE 4: JOB MANAGEMENT & ROLE CATALOGS'}
+            </span>
           </div>
-          <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">Active Job Openings & Role Catalogs</h2>
-          <p className="text-indigo-200 text-xs md:text-sm mt-1 max-w-2xl">
-            Configure target competencies, experience criteria, and department specifications. Screen applicant resumes and launch tailored mock interviews for each opening.
+          <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">
+            {userRole === 'candidate' ? 'Available Job Openings & Requirements' : 'Active Job Openings & Role Catalogs'}
+          </h2>
+          <p className="text-xs md:text-sm mt-1 max-w-2xl text-slate-300">
+            {userRole === 'candidate'
+              ? 'Explore open positions and job specifications. Click "Apply & Submit Resume" to evaluate your match score (>50% required to take the AI interview).'
+              : 'Configure target competencies, experience criteria, and department specifications. Post new job descriptions and screen applicant pools.'}
           </p>
         </div>
 
@@ -3685,6 +3807,56 @@ function FinalReportView({ sessionData, resetApp, setActiveTab, userRole, onOpen
         </div>
       </div>
 
+      {/* Dynamic Answer-Grounded Assessment Breakdown */}
+      {finalReport.detailed_answers && finalReport.detailed_answers.length > 0 && (
+        <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">
+                Candidate Answer Evaluation Breakdown
+              </span>
+              <h4 className="text-lg font-bold text-slate-900 mt-0.5">
+                Performance Assessment Grounded in Interview Spoken Answers
+              </h4>
+            </div>
+            {finalReport.response_metrics && (
+              <div className="flex items-center space-x-2 text-xs text-slate-600">
+                <span className="bg-slate-100 px-2.5 py-1 rounded-lg font-semibold">
+                  {finalReport.response_metrics.total_words_spoken} words spoken
+                </span>
+                <span className="bg-emerald-50 text-emerald-800 border border-emerald-200 px-2.5 py-1 rounded-lg font-semibold">
+                  {finalReport.response_metrics.demonstrated_count} competencies demonstrated
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            {finalReport.detailed_answers.map((ans, idx) => (
+              <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-900">
+                    Question #{ans.question_number} Response
+                  </span>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-[11px] text-slate-500">{ans.word_count} words</span>
+                    <span className="text-xs font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                      {ans.response_score_percentage}% Score
+                    </span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-700 italic bg-white p-3 rounded-lg border border-slate-200">
+                  "{ans.answer_text}"
+                </p>
+                <p className="text-[11px] text-indigo-700 font-medium">
+                  {ans.feedback}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ROLE RESTRICTION: Recruiter Decision & Final Judgment is strictly for HR account! */}
       {userRole === 'recruiter' ? (
         <div className="bg-white rounded-2xl p-6 border-2 border-indigo-200 shadow-md">
@@ -4215,6 +4387,29 @@ function ReportsFeedbackView({ jobsList, setActiveTab, setSessionData, userRole,
                 </div>
               )}
 
+              {/* Candidate Answer-by-Answer Evaluation Breakdown */}
+              {activeReport.detailed_answers && activeReport.detailed_answers.length > 0 && (
+                <div>
+                  <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                    Answer-by-Answer Evaluation Breakdown ({activeReport.detailed_answers.length} Responses)
+                  </h5>
+                  <div className="space-y-2">
+                    {activeReport.detailed_answers.map((ans, idx) => (
+                      <div key={idx} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1">
+                        <div className="flex items-center justify-between font-semibold">
+                          <span className="text-slate-900">Question #{ans.question_number} Response</span>
+                          <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                            {ans.response_score_percentage}% Score
+                          </span>
+                        </div>
+                        <p className="text-slate-700 italic bg-white p-2.5 rounded-lg border border-slate-200">"{ans.answer_text}"</p>
+                        <p className="text-[11px] text-indigo-700 font-medium">Analysis: {ans.feedback}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Recruiter Hiring Authority Decision Console OR Candidate Status Card */}
               {userRole === 'recruiter' ? (
                 <RecruiterDecisionConsole
@@ -4390,7 +4585,7 @@ function ScalabilityImpactView({ jobsList, setActiveTab }) {
       <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4">
         <div>
           <span className="text-xs font-bold text-indigo-600 uppercase tracking-wider">ENTERPRISE SCALABILITY PATH</span>
-          <h3 className="text-lg font-bold text-slate-900 mt-0.5">Enterprise Growth & Expansion Pipeline</h3>
+          <h3 className="text-lg font-bold text-slate-900 mt-0.5">Enterprise Growth & Scale Roadmap</h3>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
@@ -4940,7 +5135,7 @@ function PresentationHubView({ setActiveTab }) {
             Smart Recruit uses AI and Natural Language Processing (NLP) to automate candidate evaluation end-to-end.
           </p>
           <p>
-            The platform delivers a 5-step continuous automated pipeline:
+            The platform delivers a 5-step continuous automated workflow:
           </p>
           <div className="bg-indigo-50 border border-indigo-200 p-3 rounded-xl font-mono text-xs text-indigo-900 font-bold">
             [ 1. Resume ] ➔ [ 2. AI / NLP ] ➔ [ 3. Ranking ] ➔ [ 4. Interview ] ➔ [ 5. Score ]
@@ -4988,7 +5183,7 @@ function PresentationHubView({ setActiveTab }) {
       content: (
         <div className="space-y-3 text-xs text-slate-700 leading-relaxed">
           <p className="font-semibold text-slate-900 text-sm">
-            Client-Server Architecture with Distributed NLP and Voice Pipeline:
+            Client-Server Architecture with Distributed NLP and Voice Engine:
           </p>
           <ul className="list-disc pl-5 space-y-1.5">
             <li><strong>Frontend Layer:</strong> React 19, Vite, Tailwind CSS, Recharts for visual radar analysis and live audio playback.</li>
