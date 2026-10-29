@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UploadCloud, FileText, CheckCircle2, Sparkles, AlertCircle, ArrowRight } from 'lucide-react';
+import { UploadCloud, FileText, CheckCircle2, Sparkles, AlertCircle, ArrowRight, Trash2 } from 'lucide-react';
 import api from '../../services/api';
 
 export default function CandidateResume() {
@@ -9,7 +9,9 @@ export default function CandidateResume() {
   const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
   const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
 
   const fetchResumes = async () => {
     try {
@@ -62,11 +64,32 @@ export default function CandidateResume() {
     setAnalysisResult(null);
     try {
       const res = await api.post(`/candidate/resumes/${resumeId}/analyze?job_id=${selectedJobId}`);
-      setAnalysisResult(res.data);
+      setAnalysisResult({ ...res.data, resume_id: resumeId });
     } catch (err) {
       console.error(err);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleDeleteResume = async (resumeId, fileName) => {
+    if (!window.confirm(`Are you sure you want to remove "${fileName}" from your saved resumes?`)) {
+      return;
+    }
+    setDeletingId(resumeId);
+    setError('');
+    try {
+      await api.delete(`/candidate/resumes/${resumeId}`);
+      setResumes((prev) => prev.filter((r) => r.id !== resumeId));
+      if (analysisResult?.resume_id === resumeId) {
+        setAnalysisResult(null);
+      }
+      setSuccessMsg(`Resume "${fileName}" was successfully removed.`);
+      setTimeout(() => setSuccessMsg(''), 4000);
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Failed to remove resume.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -81,6 +104,13 @@ export default function CandidateResume() {
         <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0" />
           <span>{error}</span>
+        </div>
+      )}
+
+      {successMsg && (
+        <div className="p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span>{successMsg}</span>
         </div>
       )}
 
@@ -146,10 +176,20 @@ export default function CandidateResume() {
                   <button
                     onClick={() => handleAnalyze(r.id)}
                     disabled={analyzing}
-                    className="px-3.5 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700 shadow-sm disabled:opacity-50 flex items-center gap-1.5"
+                    className="px-3.5 py-1.5 bg-brand-600 text-white rounded-lg text-xs font-bold hover:bg-brand-700 shadow-sm disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
                   >
                     <Sparkles className="w-3.5 h-3.5" />
                     {analyzing ? 'Analyzing...' : 'Test Fit'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteResume(r.id, r.file_name)}
+                    disabled={deletingId === r.id}
+                    className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 border border-slate-200 hover:border-rose-300 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                    title="Delete resume file"
+                    aria-label={`Delete ${r.file_name}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
               </div>

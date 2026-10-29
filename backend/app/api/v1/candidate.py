@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_candidate
 from app.core.config import settings
-from app.models.models import User, CandidateProfile, ResumeFile, ResumeAnalysisReport, Job
+from app.models.models import User, CandidateProfile, ResumeFile, ResumeAnalysisReport, Job, Application
 from app.schemas.schemas import CandidateProfileUpdate, CandidateProfileOut
 from app.services.resume_service import (
     extract_text_from_pdf, extract_skills_from_text, analyze_resume_against_job, generate_anonymized_alias
@@ -135,6 +135,47 @@ async def upload_resume(
         "anonymized_alias": resume_record.anonymized_alias,
         "uploaded_at": resume_record.uploaded_at
     }
+
+@router.delete("/resumes/{resume_id}")
+def delete_candidate_resume(
+    resume_id: str,
+    candidate: User = Depends(require_candidate),
+    db: Session = Depends(get_db)
+):
+    """Candidate deletes an unwanted or odd resume file from their profile."""
+    resume = db.query(ResumeFile).filter(
+        ResumeFile.id == resume_id,
+        ResumeFile.candidate_id == candidate.id
+    ).first()
+    if not resume:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Resume not found")
+
+    # Unlink any applications referencing this resume
+    apps = db.query(Application).filter(Application.resume_file_id == resume.id).all()
+    for app in apps:
+        app.resume_file_id = None
+
+    # Remove physical file on disk if exists
+    try:
+        if resume.file_path and os.path.exists(resume.file_path):
+            os.remove(resume.file_path)
+    except Exception:
+        pass
+
+    file_name = resume.file_name
+    db.delete(resume)
+    db.commit()
+
+    record_user_activity(
+        db=db,
+        user_id=candidate.id,
+        event_type="resume_deleted",
+        resource_type="resume_file",
+        resource_id=resume_id,
+        description=f"Candidate removed resume file '{file_name}'."
+    )
+
+    return {"status": "success", "message": f"Resume '{file_name}' has been deleted successfully."}
 
 @router.post("/resumes/{resume_id}/analyze")
 def analyze_resume(
