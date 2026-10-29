@@ -48,3 +48,8 @@ pnpm-debug.log*
 .DS_Store
 Thumbs.db
 
+# SQLite WAL and lock files
+*.db-shm
+*.db-wal
+backend/smart_recruit_prod.db
+
