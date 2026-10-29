@@ -385,6 +385,42 @@ def update_ranking(ranking_id):
     })
     return jsonify({"message": "Candidate status updated"})
 
+@app.route('/api/rankings/<ranking_id>/interact', methods=['POST'])
+def interact_with_candidate(ranking_id):
+    """
+    Records HR 1-on-1 interaction / interview details with candidate.
+    HR interviews the shortlisted/selected candidates directly.
+    """
+    data = request.json or {}
+    interaction_type = data.get('interaction_type', '1-on-1 HR Interview')
+    meeting_link = data.get('meeting_link', '')
+    scheduled_time = data.get('scheduled_time', '')
+    notes = data.get('notes', '')
+    hr_decision = data.get('decision', 'Fit')
+    candidate_name = data.get('candidate_name', 'Candidate')
+
+    interaction_record = {
+        "interaction_type": interaction_type,
+        "meeting_link": meeting_link,
+        "scheduled_time": scheduled_time,
+        "notes": notes,
+        "decision": hr_decision,
+        "interacted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    database.record_hr_interaction(ranking_id, interaction_record)
+    if hr_decision in ['Perfect for the job', 'Fit', 'Unfit', 'Shortlisted', 'Offer Extended', 'Rejected']:
+        database.update_candidate_status(ranking_id, hr_decision, notes)
+    database.log_audit_action("HR_INTERACTION_RECORDED", "recruiter", {
+        "ranking_id": ranking_id,
+        "candidate": candidate_name,
+        "interaction_type": interaction_type,
+        "decision": hr_decision
+    })
+    return jsonify({
+        "message": f"HR interaction & 1-on-1 interview recorded for {candidate_name}",
+        "interaction": interaction_record
+    })
+
 # --- Module 5: Interview Generation ---
 @app.route('/start-interview', methods=['POST'])
 def start_interview():

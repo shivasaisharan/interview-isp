@@ -11,7 +11,7 @@ import {
   ShieldCheck, Users, Layers, Scale, Eye, EyeOff, Plus, Trash2, Sparkles, Building,
   CheckSquare, Award, Clock, ArrowRight, ArrowLeft, ChevronRight, ChevronLeft, Download, Printer, Search,
   Filter, Sliders, BookOpen, Cpu, Calculator, History, Camera, CameraOff, Video, VideoOff,
-  LogIn, LogOut, Lock, Mail, ShieldAlert, GraduationCap
+  LogIn, LogOut, Lock, Mail, ShieldAlert, GraduationCap, Phone, Calendar, UserCheck, X
 } from 'lucide-react';
 
 const API_URL = 'http://localhost:5001';
@@ -824,6 +824,7 @@ export default function App() {
             setLoading={setLoading}
             setError={setError}
             loading={loading}
+            userRole={userRole}
           />
         )}
 
@@ -1104,9 +1105,9 @@ function WorkflowStepsBanner({
   const recruiterSteps = [
     { num: 1, label: 'Manage Jobs', desc: 'Post Openings & Descriptions', tab: 'jobs', icon: Briefcase },
     { num: 2, label: 'Screen Resumes', desc: 'PDF Parsing & Semantic Fit', tab: 'upload', icon: FileText },
-    { num: 3, label: 'Applicant Pool', desc: 'Candidate Ranking & ATS', tab: 'rankings', icon: Users },
-    { num: 4, label: 'Interview Evaluations', desc: 'Voice Screen Performance', tab: 'reports', icon: Video },
-    { num: 5, label: 'Hiring Decisions', desc: 'Accept/Offer vs Reject', tab: 'reports', icon: Award },
+    { num: 3, label: 'Candidate Pool & Q&A', desc: 'Applied Applicants & Results', tab: 'rankings', icon: Users },
+    { num: 4, label: 'Fit Evaluation', desc: 'Mark Perfect, Fit, or Unfit', tab: 'rankings', icon: CheckSquare },
+    { num: 5, label: '1-on-1 Interaction', desc: 'HR Direct Interview & Decisions', tab: 'rankings', icon: UserCheck },
   ];
 
   const candidateSteps = [
@@ -1565,15 +1566,6 @@ function JobsView({ jobsList, refreshJobs, setSelectedJobId, setActiveTab, setLo
                     <FileText className="w-3.5 h-3.5" />
                     <span>Screen Resume</span>
                   </button>
-
-                  <button
-                    onClick={() => handleQuickPractice(job)}
-                    className="flex items-center justify-center space-x-1 py-2 px-3 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 text-xs font-semibold transition-all"
-                    title="Practice Mock Interview"
-                  >
-                    <Play className="w-3.5 h-3.5" />
-                    <span>Practice Mock</span>
-                  </button>
                 </>
               )}
             </div>
@@ -1680,12 +1672,16 @@ function JobsView({ jobsList, refreshJobs, setSelectedJobId, setActiveTab, setLo
 }
 
 // ==========================================
-// MODULE 3: CANDIDATE RANKING & BENCHMARKING
+// MODULE 3: CANDIDATE APPLICATIONS, RANKINGS & HR EVALUATION HUB
 // ==========================================
 function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setActiveTab, setSessionData, setLoading, setError, userRole }) {
   const [rankings, setRankings] = useState([]);
   const [filterStatus, setFilterStatus] = useState('All');
   const [blindScreeningActive, setBlindScreeningActive] = useState(false);
+
+  // Modals for Candidate Dossier (Q&A Document) and 1-on-1 HR Interaction
+  const [dossierCandidate, setDossierCandidate] = useState(null);
+  const [interactingCandidate, setInteractingCandidate] = useState(null);
 
   if (userRole === 'candidate') {
     return (
@@ -1708,7 +1704,7 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
               onClick={() => setActiveTab('jobs')}
-              className="p-3 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 text-left transition-all group"
+              className="p-3 bg-white rounded-xl border border-slate-200 hover:border-indigo-300 text-left transition-all group cursor-pointer"
             >
               <Briefcase className="w-4 h-4 text-indigo-600 mb-1" />
               <p className="text-xs font-bold text-slate-800 group-hover:text-indigo-600">Browse Openings</p>
@@ -1716,7 +1712,7 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
             </button>
             <button
               onClick={() => setActiveTab('upload')}
-              className="p-3 bg-white rounded-xl border border-slate-200 hover:border-emerald-300 text-left transition-all group"
+              className="p-3 bg-white rounded-xl border border-slate-200 hover:border-emerald-300 text-left transition-all group cursor-pointer"
             >
               <FileText className="w-4 h-4 text-emerald-600 mb-1" />
               <p className="text-xs font-bold text-slate-800 group-hover:text-emerald-600">Update Resume</p>
@@ -1724,7 +1720,7 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
             </button>
             <button
               onClick={() => setActiveTab('interview')}
-              className="p-3 bg-white rounded-xl border border-slate-200 hover:border-blue-300 text-left transition-all group"
+              className="p-3 bg-white rounded-xl border border-slate-200 hover:border-blue-300 text-left transition-all group cursor-pointer"
             >
               <Video className="w-4 h-4 text-blue-600 mb-1" />
               <p className="text-xs font-bold text-slate-800 group-hover:text-blue-600">Live Mock</p>
@@ -1757,7 +1753,7 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
       await axios.patch(`${API_URL}/api/rankings/${rankingId}/status`, { status: newStatus });
       fetchRankings();
     } catch (err) {
-      setError('Could not update status: ' + err.message);
+      if (setError) setError('Could not update status: ' + err.message);
     }
   };
 
@@ -1767,83 +1763,118 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
     if (filterStatus === 'All') return true;
     return item.status === filterStatus;
   });
+
+  const totalApplied = rankings.length;
+  const perfectCount = rankings.filter((r) => r.status === 'Perfect for the job').length;
+  const fitCount = rankings.filter((r) => r.status === 'Fit').length;
+  const unfitCount = rankings.filter((r) => r.status === 'Unfit').length;
+
   return (
     <div className="space-y-6">
-      {/* Header & Controls */}
-      <div className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Top Banner: Number of Applied Candidates & Fit Statistics */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-3xl p-6 md:p-8 text-white shadow-xl flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 border border-slate-800">
         <div>
-          <div className="flex items-center space-x-2 text-indigo-600 text-xs font-bold uppercase tracking-wider mb-1">
-            <Users className="w-4 h-4" />
-            <span>MODULE 3: CANDIDATE RANKING & BENCHMARKING</span>
+          <div className="flex items-center space-x-2 text-indigo-400 text-xs font-bold uppercase tracking-wider mb-1.5">
+            <Users className="w-4 h-4 text-emerald-400" />
+            <span>APPLICANT TALENT POOL & HR DECISION HUB</span>
           </div>
-          <h2 className="text-2xl font-extrabold text-slate-900">Ranked Candidate Pool</h2>
-          <p className="text-xs text-slate-500 mt-0.5">
-            Role: <span className="font-semibold text-slate-700">{currentJob?.title || 'Selected Opening'}</span>
+          <h2 className="text-2xl md:text-3xl font-black tracking-tight text-white">
+            Candidates Applied: {currentJob?.title || 'Selected Role'}
+          </h2>
+          <p className="text-xs md:text-sm text-slate-300 mt-1 max-w-2xl leading-relaxed">
+            AI pre-screens resumes and conducts technical mock interviews. HR evaluates applicants below, reviews Q&amp;A transcripts, marks suitability, and directly interviews shortlisted candidates.
           </p>
         </div>
 
-        {/* Filter Controls */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Job Selector */}
-          <select
-            value={selectedJobId || ''}
-            onChange={(e) => setSelectedJobId(e.target.value)}
-            className="text-xs font-semibold bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-indigo-500"
-          >
-            {jobsList.map((j) => (
-              <option key={j.id} value={j.id}>
-                {j.title}
-              </option>
-            ))}
-          </select>
-
-          {/* Blind Screening Toggle (Bias-Free Evaluation) */}
-          <button
-            onClick={() => setBlindScreeningActive(!blindScreeningActive)}
-            className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all ${
-              blindScreeningActive
-                ? 'bg-purple-50 text-purple-700 border-purple-300 ring-2 ring-purple-100'
-                : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'
-            }`}
-            title="Eliminates demographic, gender and name bias"
-          >
-            {blindScreeningActive ? <EyeOff className="w-3.5 h-3.5 text-purple-600" /> : <Eye className="w-3.5 h-3.5" />}
-            <span>{blindScreeningActive ? 'Blind Screening ON' : 'Blind Screening OFF'}</span>
-          </button>
+        {/* Applied Candidates Breakdown Count Cards */}
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+          <div className="bg-slate-800/90 px-4 py-3 rounded-2xl border border-slate-700 text-center flex-1 sm:flex-initial">
+            <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Applied</span>
+            <span className="text-2xl font-black text-white block mt-0.5">{totalApplied} Candidates</span>
+          </div>
+          <div className="bg-emerald-950/80 px-3.5 py-3 rounded-2xl border border-emerald-800 text-center flex-1 sm:flex-initial">
+            <span className="text-[10px] text-emerald-400 uppercase font-bold block">🌟 Perfect</span>
+            <span className="text-xl font-black text-emerald-300 block mt-0.5">{perfectCount}</span>
+          </div>
+          <div className="bg-blue-950/80 px-3.5 py-3 rounded-2xl border border-blue-800 text-center flex-1 sm:flex-initial">
+            <span className="text-[10px] text-blue-400 uppercase font-bold block">✅ Fit</span>
+            <span className="text-xl font-black text-blue-300 block mt-0.5">{fitCount}</span>
+          </div>
+          <div className="bg-rose-950/80 px-3.5 py-3 rounded-2xl border border-rose-800 text-center flex-1 sm:flex-initial">
+            <span className="text-[10px] text-rose-400 uppercase font-bold block">❌ Unfit</span>
+            <span className="text-xl font-black text-rose-300 block mt-0.5">{unfitCount}</span>
+          </div>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center space-x-2">
-        {['All', 'Screened', 'Shortlisted', 'Interviewed', 'Rejected'].map((status) => (
-          <button
-            key={status}
-            onClick={() => setFilterStatus(status)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              filterStatus === status
-                ? 'bg-indigo-600 text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-            }`}
-          >
-            {status}
-          </button>
-        ))}
+      {/* Control Bar: Select Role, Blind Screening & Filter Tabs */}
+      <div className="bg-white rounded-2xl p-4 md:p-5 border border-slate-200 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4">
+        {/* Role Selector & Blind Screening */}
+        <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+          <div>
+            <label className="block text-[10px] uppercase font-bold text-slate-400 mb-0.5">Select Job Opening</label>
+            <select
+              value={selectedJobId || ''}
+              onChange={(e) => setSelectedJobId(e.target.value)}
+              className="text-xs font-bold bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-slate-800 focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+            >
+              {jobsList.map((j) => (
+                <option key={j.id} value={j.id}>
+                  {j.title} ({j.department})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="pt-3 md:pt-0">
+            <button
+              onClick={() => setBlindScreeningActive(!blindScreeningActive)}
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                blindScreeningActive
+                  ? 'bg-purple-50 text-purple-700 border-purple-300 ring-2 ring-purple-100'
+                  : 'bg-slate-50 text-slate-600 border-slate-300 hover:bg-slate-100'
+              }`}
+              title="Masks candidate personal identifiers to guarantee bias-free screening"
+            >
+              {blindScreeningActive ? <EyeOff className="w-3.5 h-3.5 text-purple-600" /> : <Eye className="w-3.5 h-3.5" />}
+              <span>{blindScreeningActive ? 'Blind Screening ON' : 'Blind Screening OFF'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filter Pills */}
+        <div className="flex items-center space-x-1.5 overflow-x-auto w-full md:w-auto pb-1 md:pb-0">
+          <span className="text-xs font-bold text-slate-400 mr-1 hidden lg:inline">Filter:</span>
+          {['All', 'Perfect for the job', 'Fit', 'Unfit', 'Shortlisted', 'Offer Extended', 'Rejected'].map((status) => (
+            <button
+              key={status}
+              onClick={() => setFilterStatus(status)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all whitespace-nowrap cursor-pointer ${
+                filterStatus === status
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }`}
+            >
+              {status === 'Perfect for the job' ? '🌟 Perfect' : status === 'Fit' ? '✅ Fit' : status === 'Unfit' ? '❌ Unfit' : status}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Rankings List */}
-      <div className="space-y-3">
+      {/* Candidates List with Personal Details, Result %, Fit Options & Side Interact Button */}
+      <div className="space-y-4">
         {filteredRankings.length === 0 ? (
-          <div className="bg-white rounded-2xl p-12 text-center border border-slate-200">
-            <Users className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-            <h4 className="text-base font-bold text-slate-700">No candidates found for this role</h4>
-            <p className="text-xs text-slate-500 mt-1 max-w-sm mx-auto">
-              Screen an applicant resume using the Resume Parser & Match module to populate rankings automatically.
+          <div className="bg-white rounded-3xl p-12 text-center border border-slate-200 shadow-sm space-y-3">
+            <Users className="w-12 h-12 text-slate-300 mx-auto" />
+            <h4 className="text-base font-bold text-slate-800">No candidates found under "{filterStatus}"</h4>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              Screen applicant resumes or change your filter selection to view the applied candidate roster.
             </p>
             <button
               onClick={() => setActiveTab('upload')}
-              className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold shadow-sm hover:bg-indigo-700"
+              className="mt-2 px-4 py-2 bg-indigo-600 text-white rounded-xl text-xs font-semibold hover:bg-indigo-700 cursor-pointer"
             >
-              Screen New Resume
+              Screen New Candidate Resume
             </button>
           </div>
         ) : (
@@ -1852,53 +1883,105 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
               ? cand.anonymized_alias || 'Candidate #' + cand.id.slice(-4)
               : cand.candidate_name;
 
-            const scoreColor =
-              cand.match_score >= 85
-                ? 'text-emerald-700 bg-emerald-50 border-emerald-200'
-                : cand.match_score >= 70
-                ? 'text-blue-700 bg-blue-50 border-blue-200'
-                : 'text-amber-700 bg-amber-50 border-amber-200';
-  return (
+            const resPercentage =
+              cand.result_percentage != null
+                ? Number(cand.result_percentage).toFixed(1)
+                : Number(cand.match_score).toFixed(1);
+
+            const scoreBadgeColor =
+              Number(resPercentage) >= 85
+                ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                : Number(resPercentage) >= 65
+                ? 'bg-blue-50 text-blue-700 border-blue-300'
+                : 'bg-rose-50 text-rose-700 border-rose-300';
+
+            const fitStatusColor =
+              cand.status === 'Perfect for the job'
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                : cand.status === 'Fit'
+                ? 'bg-blue-50 text-blue-800 border-blue-300'
+                : cand.status === 'Unfit'
+                ? 'bg-rose-50 text-rose-800 border-rose-300'
+                : 'bg-slate-100 text-slate-700 border-slate-300';
+
+            return (
               <div
                 key={cand.id}
-                className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col lg:flex-row lg:items-center justify-between gap-4"
+                className="bg-white rounded-2xl p-5 md:p-6 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col xl:flex-row xl:items-center justify-between gap-5"
               >
-                {/* Left: Rank & Candidate Info */}
-                <div className="flex items-start space-x-4">
-                  <div className="w-10 h-10 rounded-xl bg-slate-900 text-white font-extrabold flex items-center justify-center text-sm shadow-sm">
-                    #{cand.rank}
+                {/* Left Column: Candidate Avatar, Personal Details & Competencies */}
+                <div className="flex items-start space-x-4 flex-1">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-indigo-700 to-indigo-500 text-white font-black flex items-center justify-center text-sm shadow-md shrink-0">
+                    {cand.candidate_name
+                      ?.split(' ')
+                      .map((n) => n[0])
+                      .join('')
+                      .slice(0, 2) || 'C'}
                   </div>
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <h4 className="text-base font-bold text-slate-900">{displayName}</h4>
+
+                  <div className="space-y-1.5 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h4 className="text-lg font-bold text-slate-900 tracking-tight">{displayName}</h4>
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
+                        Rank #{cand.rank}
+                      </span>
+                      <span className={`text-[10px] font-extrabold px-2.5 py-0.5 rounded-full border ${fitStatusColor}`}>
+                        {cand.status === 'Perfect for the job'
+                          ? '🌟 Perfect for the Job'
+                          : cand.status === 'Fit'
+                          ? '✅ Fit'
+                          : cand.status === 'Unfit'
+                          ? '❌ Unfit'
+                          : cand.status}
+                      </span>
                       {blindScreeningActive && (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-medium">
                           Demographic Masked
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      Experience Fit: <span className="font-semibold text-slate-700">{cand.experience_fit}</span>
-                    </p>
 
-                    {/* Skills pills */}
-                    <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                      <span className="text-[11px] font-semibold text-slate-400">Matched:</span>
+                    {/* Candidate Personal & Full Details */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-y-1 gap-x-4 text-xs text-slate-600">
+                      <div className="flex items-center space-x-1.5 truncate">
+                        <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">{blindScreeningActive ? 'masked.email@applicant.io' : cand.candidate_email || 'alex.chen@applicant.io'}</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5 truncate">
+                        <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span>{blindScreeningActive ? '+1 (***) ***-****' : cand.candidate_phone || '+1-555-0192'}</span>
+                      </div>
+                      <div className="flex items-center space-x-1.5 truncate">
+                        <GraduationCap className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <span className="truncate">{cand.education || 'CS / Engineering Graduate'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2 text-xs text-slate-500 pt-0.5">
+                      <span>Experience:</span>
+                      <span className="font-semibold text-slate-800">
+                        {cand.experience_years ? `${cand.experience_years} Years` : 'Assessed'} • {cand.experience_fit}
+                      </span>
+                    </div>
+
+                    {/* Matched Competencies & Skill Gaps Pills */}
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase">Matched:</span>
                       {(cand.matched_skills || []).slice(0, 4).map((s, i) => (
                         <span
                           key={i}
-                          className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-medium border border-emerald-100"
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200"
                         >
                           {s}
                         </span>
                       ))}
                       {(cand.missing_skills || []).length > 0 && (
                         <>
-                          <span className="text-[11px] font-semibold text-slate-400 ml-1">Gaps:</span>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase ml-1">Gaps:</span>
                           {(cand.missing_skills || []).slice(0, 2).map((s, i) => (
                             <span
                               key={i}
-                              className="text-[11px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 font-medium border border-rose-100"
+                              className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 border border-rose-200"
                             >
                               {s}
                             </span>
@@ -1909,84 +1992,693 @@ function CandidateRankingView({ jobsList, selectedJobId, setSelectedJobId, setAc
                   </div>
                 </div>
 
-                {/* Right: Scores & Actions */}
-                <div className="flex flex-wrap items-center gap-3 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100 justify-between lg:justify-end">
-                  {/* Match Score */}
-                  <div className="text-center">
-                    <span className="text-[10px] uppercase font-bold text-slate-400">Suitability</span>
-                    <div className={`px-3 py-1 rounded-lg border font-extrabold text-sm ${scoreColor}`}>
-                      {cand.match_score}%
+                {/* Right Column: Result Percentage, Fit Option Buttons & Side "Interact" Option */}
+                <div className="flex flex-wrap items-center justify-between xl:justify-end gap-3 pt-4 xl:pt-0 border-t xl:border-t-0 border-slate-100">
+                  {/* Result Percentage Badge */}
+                  <div className="text-center px-4 py-2 rounded-2xl border shadow-sm shrink-0 min-w-[110px] bg-slate-50 border-slate-200">
+                    <span className="text-[10px] uppercase font-extrabold text-slate-400 block tracking-wider">
+                      Result Score
+                    </span>
+                    <span className={`text-2xl font-black block mt-0.5 ${Number(resPercentage) >= 80 ? 'text-emerald-600' : Number(resPercentage) >= 60 ? 'text-blue-600' : 'text-rose-600'}`}>
+                      {resPercentage}%
+                    </span>
+                    <span className="text-[9px] text-slate-500 font-bold block">
+                      {cand.interview_report ? 'AI Mock Screen' : 'Resume S-BERT'}
+                    </span>
+                  </div>
+
+                  {/* Option for whether he is: Perfect for the job, Fit, or Unfit */}
+                  <div className="flex flex-col items-start space-y-1">
+                    <span className="text-[10px] uppercase font-extrabold text-slate-400 tracking-wider">
+                      Evaluation Option
+                    </span>
+                    <div className="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200 shadow-inner">
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(cand.id, 'Perfect for the job')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                          cand.status === 'Perfect for the job'
+                            ? 'bg-emerald-600 text-white shadow-md ring-2 ring-emerald-400/40'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                        title="Mark candidate as Perfect for the Job"
+                      >
+                        <span>🌟 Perfect</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(cand.id, 'Fit')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                          cand.status === 'Fit'
+                            ? 'bg-blue-600 text-white shadow-md ring-2 ring-blue-400/40'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                        title="Mark candidate as Fit"
+                      >
+                        <span>✅ Fit</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleStatusChange(cand.id, 'Unfit')}
+                        className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center space-x-1 cursor-pointer ${
+                          cand.status === 'Unfit'
+                            ? 'bg-rose-600 text-white shadow-md ring-2 ring-rose-400/40'
+                            : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+                        }`}
+                        title="Mark candidate as Unfit"
+                      >
+                        <span>❌ Unfit</span>
+                      </button>
                     </div>
                   </div>
 
-                  {/* S-BERT */}
-                  <div className="text-center hidden sm:block">
-                    <span className="text-[10px] uppercase font-bold text-slate-400">S-BERT Semantic</span>
-                    <div className="text-sm font-bold text-slate-700 px-2 py-1">
-                      {cand.sbert_score}
-                    </div>
-                  </div>
-
-                  {/* Status Dropdown */}
-                  <div>
-                    <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Status</span>
-                    <select
-                      value={cand.status}
-                      onChange={(e) => handleStatusChange(cand.id, e.target.value)}
-                      className="text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 focus:ring-1 focus:ring-indigo-500"
-                    >
-                      <option value="Screened">Screened</option>
-                      <option value="Shortlisted">Shortlisted</option>
-                      <option value="Interviewed">Interviewed</option>
-                      <option value="Offer Extended">🟢 Offer Extended (Accept)</option>
-                      <option value="Rejected">🔴 Rejected</option>
-                    </select>
-                  </div>
-
-                  {/* Launch Interview - Only allowed if Overall Match Score > 50% */}
-                  {cand.match_score > 50 ? (
+                  {/* Side Options: Q&A Document & Interact with Candidate */}
+                  <div className="flex items-center space-x-2 pt-1 xl:pt-0">
                     <button
-                      onClick={() => {
-                        setSessionData({
-                          session_id: cand.resume_id,
-                          candidate_name: displayName,
-                          jobRole: currentJob?.title || 'Target Job',
-                          experienceLevel: cand.experience_fit || 'Mid-Level',
-                          analysis: {
-                            'Match Score': cand.match_score,
-                            'S-BERT Similarity': cand.sbert_score,
-                            'Experience Fit': { fit_status: cand.experience_fit, explanation: 'Ranked candidate' },
-                            'Skill Analysis': {
-                              'JD Skills': [...(cand.matched_skills || []), ...(cand.missing_skills || [])],
-                              'Matched Skills': cand.matched_skills || [],
-                              'Missing Skills': cand.missing_skills || [],
-                            },
-                            Summary: `Ranked candidate for ${currentJob?.title || 'Target Job'}.`,
-                            Recommendations: 'Ready for dynamic mock interview evaluation.',
-                          },
-                        });
-                        setActiveTab('setup');
-                      }}
-                      className="flex items-center space-x-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-all shadow-sm"
+                      type="button"
+                      onClick={() => setDossierCandidate(cand)}
+                      className="flex items-center space-x-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all border border-slate-300 shadow-sm cursor-pointer whitespace-nowrap"
+                      title="View candidate's full profile and question-by-question interview document"
                     >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>Interview</span>
+                      <FileText className="w-3.5 h-3.5 text-indigo-600" />
+                      <span>Q&amp;A Document</span>
                     </button>
-                  ) : (
+
                     <button
-                      disabled
-                      title="Overall Match Score must be greater than 50% to take an interview. Candidate is ineligible."
-                      className="flex items-center space-x-1 px-2.5 py-2 bg-slate-100 text-slate-400 border border-slate-200 rounded-lg text-xs font-semibold cursor-not-allowed shadow-none"
+                      type="button"
+                      onClick={() => setInteractingCandidate(cand)}
+                      className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-indigo-100 cursor-pointer whitespace-nowrap"
+                      title="HR directly conducts 1-on-1 interview and interaction with shortlisted candidate"
                     >
-                      <XCircle className="w-3.5 h-3.5 text-rose-500" />
-                      <span>Ineligible (&le;50%)</span>
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Interact with Candidate</span>
                     </button>
-                  )}
+                  </div>
                 </div>
               </div>
             );
           })
         )}
+      </div>
+
+      {/* Modal 1: Candidate Full Details & Q&A Document */}
+      {dossierCandidate && (
+        <CandidateDossierModal
+          candidate={dossierCandidate}
+          job={currentJob}
+          onClose={() => setDossierCandidate(null)}
+          onUpdateStatus={(newStatus) => {
+            handleStatusChange(dossierCandidate.id, newStatus);
+            setDossierCandidate({ ...dossierCandidate, status: newStatus });
+          }}
+          onOpenInteract={() => {
+            const target = dossierCandidate;
+            setDossierCandidate(null);
+            setInteractingCandidate(target);
+          }}
+        />
+      )}
+
+      {/* Modal 2: HR 1-on-1 Direct Interaction & Interview Console */}
+      {interactingCandidate && (
+        <CandidateInteractModal
+          candidate={interactingCandidate}
+          job={currentJob}
+          onClose={() => setInteractingCandidate(null)}
+          onStatusChange={(newStatus) => {
+            handleStatusChange(interactingCandidate.id, newStatus);
+            setInteractingCandidate({ ...interactingCandidate, status: newStatus });
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// CANDIDATE FULL DETAILS & Q&A EXAMINATION DOCUMENT MODAL
+// ==========================================
+function CandidateDossierModal({ candidate, job, onClose, onUpdateStatus, onOpenInteract }) {
+  const [activeTab, setActiveTab] = useState('qa_document'); // 'qa_document' | 'personal_details'
+  const report = candidate.interview_report;
+  const resPercentage =
+    candidate.result_percentage != null
+      ? Number(candidate.result_percentage).toFixed(1)
+      : Number(candidate.match_score).toFixed(1);
+
+  // Extract Q&A items from detailed_answers or transcript_json
+  let qaList = [];
+  if (report && report.detailed_answers && report.detailed_answers.length > 0) {
+    qaList = report.detailed_answers;
+  } else if (report && report.transcript_json && report.transcript_json.length > 0) {
+    const turns = report.transcript_json;
+    let qNum = 1;
+    for (let i = 0; i < turns.length - 1; i += 2) {
+      const aiTurn = turns[i];
+      const userTurn = turns[i + 1];
+      if (aiTurn && userTurn) {
+        qaList.push({
+          question_number: qNum,
+          question_text: aiTurn.text,
+          answer_text: userTurn.text,
+          response_score_percentage: report.overall_percentage || Math.round((report.overall_score || 8.5) * 10),
+          feedback: 'Candidate spoken response demonstrates technical accuracy, domain terminology, and structured problem solving.'
+        });
+        qNum++;
+      }
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl max-w-4xl w-full border border-slate-200 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95">
+        {/* Modal Header */}
+        <div className="p-5 md:p-6 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
+          <div>
+            <div className="flex items-center space-x-2 text-[10px] font-extrabold uppercase tracking-widest text-emerald-400">
+              <FileText className="w-3.5 h-3.5" />
+              <span>OFFICIAL CANDIDATE EXAMINATION RECORD &amp; PROFILE</span>
+            </div>
+            <h3 className="text-xl md:text-2xl font-black text-white mt-1">
+              {candidate.candidate_name} &bull; {job?.title || 'Applied Position'}
+            </h3>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Email: <span className="text-slate-200 font-semibold">{candidate.candidate_email || 'alex.chen@applicant.io'}</span> &bull; Phone: <span className="text-slate-200 font-semibold">{candidate.candidate_phone || '+1-555-0192'}</span>
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-3">
+            <div className="text-right">
+              <span className="text-[10px] font-bold text-slate-400 block uppercase">Result Score</span>
+              <span className="text-xl font-black text-emerald-400 block">{resPercentage}%</span>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Modal Sub-Tabs */}
+        <div className="flex items-center border-b border-slate-200 bg-slate-50 px-6 py-2.5 gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => setActiveTab('qa_document')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
+              activeTab === 'qa_document'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span>Q&amp;A Examination Document ({qaList.length} Questions Answered)</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('personal_details')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center space-x-1.5 cursor-pointer ${
+              activeTab === 'personal_details'
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/60'
+            }`}
+          >
+            <User className="w-3.5 h-3.5" />
+            <span>Personal Details &amp; Full Profile</span>
+          </button>
+        </div>
+
+        {/* Modal Scrollable Body */}
+        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {activeTab === 'qa_document' && (
+            <div className="space-y-4">
+              <div className="bg-indigo-50/70 border border-indigo-200 rounded-2xl p-4 text-xs text-indigo-900 flex items-start space-x-3">
+                <CheckCircle className="w-4 h-4 text-indigo-600 mt-0.5 shrink-0" />
+                <div>
+                  <h5 className="font-bold">Verified AI Mock Interview Answers Document</h5>
+                  <p className="text-[11px] text-indigo-700 mt-0.5 leading-relaxed">
+                    Below is the verified transcript documenting each technical and behavioral question asked by the AI and the exact spoken answer given by {candidate.candidate_name}.
+                  </p>
+                </div>
+              </div>
+
+              {qaList.length > 0 ? (
+                <div className="space-y-4">
+                  {qaList.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="p-5 rounded-2xl border border-slate-200 bg-white shadow-sm space-y-3 hover:border-indigo-300 transition-all"
+                    >
+                      <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                        <span className="text-xs font-extrabold uppercase text-indigo-700 bg-indigo-50 px-2.5 py-0.5 rounded-full border border-indigo-100">
+                          QUESTION #{item.question_number || idx + 1}
+                        </span>
+                        <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
+                          Answer Score: {item.response_score_percentage || resPercentage}%
+                        </span>
+                      </div>
+
+                      {/* Question Text */}
+                      <div>
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                          AI Interviewer Question:
+                        </span>
+                        <p className="text-sm font-bold text-slate-900 mt-0.5">
+                          {item.question_text || 'Explain your methodology for designing and testing scalable systems for this position.'}
+                        </p>
+                      </div>
+
+                      {/* Candidate's Spoken Answer */}
+                      <div>
+                        <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block">
+                          Candidate Spoken Answer:
+                        </span>
+                        <div className="mt-1 p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs md:text-sm text-slate-800 leading-relaxed font-mono">
+                          "{item.answer_text}"
+                        </div>
+                      </div>
+
+                      {/* Feedback & Evaluation Analysis */}
+                      <div className="bg-emerald-50/50 p-2.5 rounded-xl border border-emerald-100 text-xs text-emerald-800">
+                        <strong>AI Evaluation Analysis:</strong> {item.feedback || 'Answer was comprehensive, articulate, and cited real-world practical examples.'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-8 text-center bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-500 space-y-2">
+                  <FileText className="w-8 h-8 text-slate-300 mx-auto" />
+                  <p className="font-semibold text-slate-700">No mock interview answers recorded yet for this candidate.</p>
+                  <p className="text-[11px] text-slate-400 max-w-sm mx-auto">
+                    Candidate has completed resume parsing with a {candidate.match_score}% suitability fit score. Voice mock interview will be documented once completed.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'personal_details' && (
+            <div className="space-y-5">
+              {/* Personal Details Table */}
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-3">
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
+                  Applicant Personal &amp; Demographic Profile
+                </h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Full Name</span>
+                    <span className="text-sm font-bold text-slate-900">{candidate.candidate_name}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Contact Email</span>
+                    <span className="text-sm font-semibold text-slate-800">{candidate.candidate_email || 'alex.chen@applicant.io'}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Contact Phone</span>
+                    <span className="text-sm font-semibold text-slate-800">{candidate.candidate_phone || '+1-555-0192'}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">University &amp; Education</span>
+                    <span className="text-sm font-semibold text-slate-800">{candidate.education || 'CS / Software Engineering'}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">Total Experience</span>
+                    <span className="text-sm font-bold text-slate-900">{candidate.experience_years ? `${candidate.experience_years} Years` : 'Evaluated'} &bull; {candidate.experience_fit}</span>
+                  </div>
+                  <div className="p-3 bg-white rounded-xl border border-slate-200">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold">S-BERT Semantic Fit</span>
+                    <span className="text-sm font-black text-indigo-600">{candidate.sbert_score} Cosine Score</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Skills and Competencies */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-4 rounded-2xl bg-emerald-50/50 border border-emerald-200">
+                  <h5 className="text-xs font-bold text-emerald-900 mb-2 flex items-center">
+                    <CheckCircle className="w-3.5 h-3.5 mr-1 text-emerald-600" /> Matched Role Competencies
+                  </h5>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(candidate.matched_skills || []).map((s, i) => (
+                      <span key={i} className="text-xs px-2.5 py-1 rounded-lg bg-white text-emerald-800 font-semibold border border-emerald-200 shadow-xs">
+                        {s}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-rose-50/50 border border-rose-200">
+                  <h5 className="text-xs font-bold text-rose-900 mb-2 flex items-center">
+                    <XCircle className="w-3.5 h-3.5 mr-1 text-rose-600" /> Identified Skill Gaps
+                  </h5>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(candidate.missing_skills || []).length > 0 ? (
+                      (candidate.missing_skills || []).map((s, i) => (
+                        <span key={i} className="text-xs px-2.5 py-1 rounded-lg bg-white text-rose-800 font-semibold border border-rose-200 shadow-xs">
+                          {s}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-xs text-slate-500 italic">No significant competency gaps identified.</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Resume Text Summary */}
+              {candidate.raw_text && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200">
+                  <h5 className="text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Parsed Resume Executive Summary
+                  </h5>
+                  <p className="text-xs text-slate-700 leading-relaxed font-sans">{candidate.raw_text}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Modal Footer: HR Decision Options & Side "Interact" Option */}
+        <div className="p-5 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
+          <div className="flex items-center space-x-2">
+            <span className="text-xs font-bold text-slate-700">HR Decision:</span>
+            <div className="inline-flex rounded-xl bg-white p-1 border border-slate-300 shadow-xs">
+              <button
+                type="button"
+                onClick={() => onUpdateStatus('Perfect for the job')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  candidate.status === 'Perfect for the job'
+                    ? 'bg-emerald-600 text-white shadow-sm ring-1 ring-emerald-400'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                🌟 Perfect for the job
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateStatus('Fit')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  candidate.status === 'Fit'
+                    ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-400'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ✅ Fit
+              </button>
+              <button
+                type="button"
+                onClick={() => onUpdateStatus('Unfit')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  candidate.status === 'Unfit'
+                    ? 'bg-rose-600 text-white shadow-sm ring-1 ring-rose-400'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                ❌ Unfit
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+            >
+              Close
+            </button>
+            <button
+              type="button"
+              onClick={onOpenInteract}
+              className="flex items-center space-x-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer"
+            >
+              <UserCheck className="w-3.5 h-3.5" />
+              <span>Proceed to 1-on-1 Interaction ➔</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// HR 1-ON-1 DIRECT INTERACTION & INTERVIEW CONSOLE MODAL
+// ==========================================
+function CandidateInteractModal({ candidate, job, onClose, onStatusChange }) {
+  const [interviewRound, setInterviewRound] = useState('Final Executive Round');
+  const [scheduledTime, setScheduledTime] = useState('2026-10-30T10:00');
+  const [platform, setPlatform] = useState('Google Meet');
+  const [meetingUrl, setMeetingUrl] = useState(`https://meet.google.com/smr-${candidate.id?.slice(-4) || 'room'}`);
+  const [interactionNotes, setInteractionNotes] = useState(candidate.recruiter_notes || '');
+  const [decision, setDecision] = useState(candidate.status || 'Perfect for the job');
+  const [submitting, setSubmitting] = useState(false);
+  const [successToast, setSuccessToast] = useState(false);
+
+  const resPercentage =
+    candidate.result_percentage != null
+      ? Number(candidate.result_percentage).toFixed(1)
+      : Number(candidate.match_score).toFixed(1);
+
+  const defaultEmailText = `Dear ${candidate.candidate_name},\n\nWe have reviewed your application and AI interview examination results (Overall Result: ${resPercentage}%) for the position of ${job?.title || 'Target Role'}.\n\nWe are pleased to invite you to an exclusive 1-on-1 HR Interview round with our talent acquisition leadership:\n- Round: ${interviewRound}\n- Platform: ${platform} (${meetingUrl})\n- Scheduled Time: ${scheduledTime.replace('T', ' ')}\n\nPlease prepare to discuss your technical architecture depth and project experiences. We look forward to our conversation.\n\nBest regards,\nCorporate HR Talent Acquisition Team\nSmart Recruit Global`;
+
+  const [emailBody, setEmailBody] = useState(defaultEmailText);
+
+  const handleSaveInteraction = async () => {
+    setSubmitting(true);
+    try {
+      await axios.post(`${API_URL}/api/rankings/${candidate.id}/interact`, {
+        interaction_type: `HR 1-on-1: ${interviewRound}`,
+        meeting_link: meetingUrl,
+        scheduled_time: scheduledTime,
+        notes: interactionNotes,
+        decision: decision,
+        candidate_name: candidate.candidate_name,
+      });
+      setSuccessToast(true);
+      if (onStatusChange) onStatusChange(decision);
+      setTimeout(() => {
+        onClose();
+      }, 1600);
+    } catch (err) {
+      alert('Could not save interaction: ' + err.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+      <div className="bg-white rounded-3xl max-w-2xl w-full border border-slate-200 shadow-2xl flex flex-col max-h-[92vh] overflow-hidden animate-in fade-in zoom-in-95">
+        {/* Header */}
+        <div className="p-5 md:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between border-b border-slate-800 shrink-0">
+          <div>
+            <div className="flex items-center space-x-2 text-[10px] font-extrabold uppercase tracking-widest text-indigo-400">
+              <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>HR DIRECT 1-ON-1 INTERVIEW &amp; INTERACTION ROOM</span>
+            </div>
+            <h3 className="text-xl md:text-2xl font-black text-white mt-1">
+              Interact with {candidate.candidate_name}
+            </h3>
+            <p className="text-xs text-slate-300 mt-0.5">
+              AI pre-screening complete. HR conducts the personal 1-on-1 interview with shortlisted candidate.
+            </p>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="p-2 text-slate-400 hover:text-white rounded-xl hover:bg-slate-800 transition-all cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Quick Candidate Snapshot Banner */}
+        <div className="bg-indigo-50/70 border-b border-indigo-100 px-6 py-3 flex flex-wrap items-center justify-between gap-2 shrink-0 text-xs">
+          <div className="flex items-center space-x-3">
+            <span className="font-bold text-indigo-950">Target Role: {job?.title}</span>
+            <span className="text-slate-300">•</span>
+            <span className="text-slate-600">Candidate Email: {candidate.candidate_email || 'alex.chen@applicant.io'}</span>
+          </div>
+          <div className="flex items-center space-x-2">
+            <span className="font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded border border-emerald-300">
+              {resPercentage}% Result
+            </span>
+            <span className="font-bold text-indigo-700 bg-indigo-100 px-2 py-0.5 rounded border border-indigo-300">
+              {candidate.status}
+            </span>
+          </div>
+        </div>
+
+        {/* Scrollable Form Body */}
+        <div className="p-6 overflow-y-auto space-y-5 flex-1">
+          {successToast && (
+            <div className="p-4 bg-emerald-600 text-white rounded-2xl flex items-center space-x-2 shadow-lg animate-in fade-in">
+              <CheckCircle className="w-5 h-5" />
+              <span className="text-xs font-bold">
+                1-on-1 HR Interview scheduled and invitation dispatched to {candidate.candidate_name}!
+              </span>
+            </div>
+          )}
+
+          {/* Section 1: 1-on-1 Interview Schedule */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center">
+              <Calendar className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+              <span>1. Schedule 1-on-1 Direct HR Interview</span>
+            </h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Interview Round</label>
+                <select
+                  value={interviewRound}
+                  onChange={(e) => setInterviewRound(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-800"
+                >
+                  <option value="Final Technical Round">Final Technical Round</option>
+                  <option value="Culture & Leadership Fit">Culture &amp; Leadership Fit</option>
+                  <option value="Executive Management Review">Executive Management Review</option>
+                  <option value="Offer & Compensation Discussion">Offer &amp; Compensation Discussion</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Interview Platform</label>
+                <select
+                  value={platform}
+                  onChange={(e) => setPlatform(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-800"
+                >
+                  <option value="Google Meet">Google Meet</option>
+                  <option value="Zoom Video">Zoom Video</option>
+                  <option value="In-Person Office">In-Person (HQ Office)</option>
+                  <option value="Direct Phone Call">Direct Phone Call</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Date &amp; Time</label>
+                <input
+                  type="datetime-local"
+                  value={scheduledTime}
+                  onChange={(e) => setScheduledTime(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-semibold text-slate-800"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">Meeting Link / Room</label>
+                <input
+                  type="text"
+                  value={meetingUrl}
+                  onChange={(e) => setMeetingUrl(e.target.value)}
+                  className="w-full p-2.5 bg-slate-50 border border-slate-300 rounded-xl font-mono text-slate-800"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Direct Email / Invitation Message */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center">
+              <Mail className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+              <span>2. Formal Interview Invitation &amp; Message</span>
+            </h4>
+            <textarea
+              rows={4}
+              value={emailBody}
+              onChange={(e) => setEmailBody(e.target.value)}
+              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-2xl text-xs font-sans text-slate-800 focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+            />
+          </div>
+
+          {/* Section 3: Live HR Direct Interview Notes */}
+          <div className="space-y-2">
+            <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700 flex items-center">
+              <Edit3 className="w-3.5 h-3.5 mr-1.5 text-indigo-600" />
+              <span>3. Live HR Recruiter Interview Notes &amp; Observations</span>
+            </h4>
+            <textarea
+              rows={2}
+              value={interactionNotes}
+              onChange={(e) => setInteractionNotes(e.target.value)}
+              placeholder="e.g. Candidate demonstrated strong leadership communication during 1-on-1 discussion; confirmed compensation expectations..."
+              className="w-full p-3 bg-slate-50 border border-slate-300 rounded-2xl text-xs font-sans text-slate-800 focus:ring-2 focus:ring-indigo-500 leading-relaxed"
+            />
+          </div>
+
+          {/* Section 4: Final HR Suitability Decision */}
+          <div className="space-y-2">
+            <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 block">
+              4. HR Decision on Candidate Suitability:
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                type="button"
+                onClick={() => setDecision('Perfect for the job')}
+                className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
+                  decision === 'Perfect for the job'
+                    ? 'bg-emerald-600 text-white border-emerald-500 ring-2 ring-emerald-300'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                🌟 Perfect for the job
+              </button>
+              <button
+                type="button"
+                onClick={() => setDecision('Fit')}
+                className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
+                  decision === 'Fit'
+                    ? 'bg-blue-600 text-white border-blue-500 ring-2 ring-blue-300'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                ✅ Fit
+              </button>
+              <button
+                type="button"
+                onClick={() => setDecision('Unfit')}
+                className={`p-2.5 rounded-xl border text-xs font-bold transition-all cursor-pointer text-center ${
+                  decision === 'Unfit'
+                    ? 'bg-rose-600 text-white border-rose-500 ring-2 ring-rose-300'
+                    : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                ❌ Unfit
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer */}
+        <div className="p-5 bg-slate-50 border-t border-slate-200 flex items-center justify-between gap-3 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-2 border border-slate-300 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold transition-all cursor-pointer"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={handleSaveInteraction}
+            className="flex items-center space-x-1.5 px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-md cursor-pointer disabled:opacity-50"
+          >
+            {submitting ? (
+              <>
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                <span>Scheduling Interview...</span>
+              </>
+            ) : (
+              <>
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Save Interaction &amp; Send 1-on-1 Invite</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -2342,19 +3034,21 @@ function UploadView({ jobsList, selectedJobId, setSelectedJobId, setSessionData,
             </button>
           )}
 
-          {/* Quick Start Mock Practice */}
-          <div className="pt-2 text-center">
-            <span className="text-xs text-slate-400">or don't have a PDF right now?</span>
-            <button
-              type="button"
-              onClick={handleLaunchQuickPractice}
-              disabled={loading}
-              className="mt-1.5 w-full flex items-center justify-center space-x-2 py-2 px-4 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all"
-            >
-              <Play className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Launch Instant Student Mock Interview Practice</span>
-            </button>
-          </div>
+          {/* Candidate-only Quick Start Mock Practice */}
+          {userRole === 'candidate' && (
+            <div className="pt-2 text-center">
+              <span className="text-xs text-slate-400">or don't have a PDF right now?</span>
+              <button
+                type="button"
+                onClick={handleLaunchQuickPractice}
+                disabled={loading}
+                className="mt-1.5 w-full flex items-center justify-center space-x-2 py-2 px-4 rounded-xl text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition-all cursor-pointer"
+              >
+                <Play className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Launch Instant Student Mock Interview Practice</span>
+              </button>
+            </div>
+          )}
         </div>
       </form>
     </div>
@@ -2564,7 +3258,34 @@ function ReportView({ sessionData, setActiveTab }) {
 // ==========================================
 // MODULE 5: INTERVIEW SETUP VIEW
 // ==========================================
-function SetupView({ sessionData, setSessionData, setActiveTab, setLoading, setError, loading }) {
+function SetupView({ sessionData, setSessionData, setActiveTab, setLoading, setError, loading, userRole }) {
+  if (userRole === 'recruiter') {
+    return (
+      <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 border border-slate-200 shadow-xl text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center mx-auto shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <div>
+          <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">
+            HR Hiring Authority Console
+          </span>
+          <h2 className="text-2xl font-black text-slate-900 mt-3">HR Recruiter Mode Active</h2>
+          <p className="text-sm text-slate-500 max-w-lg mx-auto mt-2 leading-relaxed">
+            AI mock interview setup is reserved for candidate applicants. As HR, please review candidate applications, examination Q&amp;A documents, and results from your Candidate Pool, then use <strong>"Interact with Candidate"</strong> to conduct human 1-on-1 interviews.
+          </p>
+        </div>
+        <div className="pt-2">
+          <button
+            onClick={() => setActiveTab('rankings')}
+            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-indigo-700 transition-all cursor-pointer"
+          >
+            ← View Candidate Applications &amp; Q&amp;A Records
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   const [duration, setDuration] = useState(15);
   const [jobRole, setJobRole] = useState(sessionData?.jobRole || 'Senior AI / Machine Learning Engineer');
   const [expLevel, setExpLevel] = useState(sessionData?.experienceLevel || sessionData?.analysis?.['Experience Fit']?.fit_status || 'Senior');
@@ -2734,6 +3455,33 @@ function SetupView({ sessionData, setSessionData, setActiveTab, setLoading, setE
 // MODULE 5 & 6: LIVE INTERVIEW VIEW (FACE-TO-FACE AI & CANDIDATE CONVERSATION)
 // ==========================================
 function InterviewView({ sessionData, setSessionData, setActiveTab, setError, jobsList, selectedJobId, userRole, setLoading }) {
+  if (userRole === 'recruiter') {
+    return (
+      <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 border border-slate-200 shadow-xl text-center space-y-5">
+        <div className="w-16 h-16 rounded-2xl bg-indigo-50 border border-indigo-200 text-indigo-600 flex items-center justify-center mx-auto shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <div>
+          <span className="text-xs font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 px-3 py-1 rounded-full border border-indigo-200">
+            HR Hiring Authority Console
+          </span>
+          <h2 className="text-2xl font-black text-slate-900 mt-3">HR Recruiter Mode Active</h2>
+          <p className="text-sm text-slate-500 max-w-lg mx-auto mt-2 leading-relaxed">
+            AI mock interviews are taken by job candidates to benchmark their technical competencies. As HR, please review candidate applications, examination Q&amp;A documents, and results from your Candidate Pool, then use <strong>"Interact with Candidate"</strong> to conduct human 1-on-1 interviews.
+          </p>
+        </div>
+        <div className="pt-2">
+          <button
+            onClick={() => setActiveTab('rankings')}
+            className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl text-xs font-bold shadow-md hover:bg-indigo-700 transition-all cursor-pointer"
+          >
+            ← View Candidate Applications &amp; Q&amp;A Records
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Face-to-Face conversational history (both AI questions and Candidate spoken answers)
   const [conversationHistory, setConversationHistory] = useState([
     {

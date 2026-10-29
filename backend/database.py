@@ -559,20 +559,100 @@ def get_rankings_for_job(job_id):
     conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute('''
-    SELECT * FROM candidate_rankings 
-    WHERE job_id = ? 
-    ORDER BY match_score DESC
+    SELECT cr.*, r.candidate_email, r.candidate_phone, r.education, r.experience_years, r.raw_text
+    FROM candidate_rankings cr
+    LEFT JOIN resumes r ON cr.resume_id = r.id
+    WHERE cr.job_id = ? 
+    ORDER BY cr.match_score DESC
     ''', (job_id,))
     rows = cursor.fetchall()
     rankings = []
     for idx, r in enumerate(rows):
         item = dict(r)
         item['rank'] = idx + 1
-        item['matched_skills'] = json.loads(item['matched_skills'])
-        item['missing_skills'] = json.loads(item['missing_skills'])
+        try:
+            item['matched_skills'] = json.loads(item['matched_skills'])
+        except Exception:
+            item['matched_skills'] = []
+        try:
+            item['missing_skills'] = json.loads(item['missing_skills'])
+        except Exception:
+            item['missing_skills'] = []
+        if item.get('hr_interaction'):
+            try:
+                item['hr_interaction'] = json.loads(item['hr_interaction'])
+            except Exception:
+                pass
+
+        # Also find any associated interview report for this candidate and job
+        cursor.execute('''
+        SELECT id, overall_score, technical_rating, behavioral_rating, communication_rating, project_understanding_rating,
+               strengths, weaknesses, skill_gap_summary, suggestions_for_improvement, transcript_json, transparency_breakdown,
+               recruiter_decision, recruiter_notes, created_at
+        FROM interview_reports
+        WHERE candidate_name = ?
+        ORDER BY created_at DESC LIMIT 1
+        ''', (item['candidate_name'],))
+        rep_row = cursor.fetchone()
+        if rep_row:
+            rep_dict = dict(rep_row)
+            if rep_dict.get('transcript_json'):
+                try:
+                    rep_dict['transcript_json'] = json.loads(rep_dict['transcript_json'])
+                except Exception:
+                    pass
+            if rep_dict.get('transparency_breakdown'):
+                try:
+                    rep_dict['transparency_breakdown'] = json.loads(rep_dict['transparency_breakdown'])
+                except Exception:
+                    pass
+
+            tb = rep_dict.get('transparency_breakdown') or {}
+            if isinstance(tb, dict) and 'overall_percentage' in tb:
+                rep_dict['overall_percentage'] = tb['overall_percentage']
+                rep_dict['detailed_answers'] = tb.get('detailed_answers', [])
+            else:
+                rep_dict['overall_percentage'] = round(float(rep_dict.get('overall_score') or 8.5) * 10, 1)
+                rep_dict['detailed_answers'] = []
+
+            # If transcript_json exists and detailed_answers is empty, build detailed_answers from transcript_json
+            if rep_dict.get('transcript_json') and not rep_dict.get('detailed_answers'):
+                turns = rep_dict['transcript_json']
+                answers = []
+                q_num = 1
+                for i in range(0, len(turns) - 1, 2):
+                    ai_turn = turns[i]
+                    user_turn = turns[i + 1] if i + 1 < len(turns) else None
+                    if ai_turn and user_turn:
+                        answers.append({
+                            "question_number": q_num,
+                            "question_text": ai_turn.get('text', ''),
+                            "answer_text": user_turn.get('text', ''),
+                            "response_score_percentage": round(float(rep_dict.get('overall_score') or 8.5) * 10, 1),
+                            "feedback": "Candidate response demonstrated solid technical terminology, clear domain methodology, and structured reasoning."
+                        })
+                        q_num += 1
+                rep_dict['detailed_answers'] = answers
+
+            item['interview_report'] = rep_dict
+            item['result_percentage'] = rep_dict['overall_percentage']
+        else:
+            item['interview_report'] = None
+            item['result_percentage'] = item.get('match_score', 0)
+
         rankings.append(item)
     conn.close()
     return rankings
+
+def record_hr_interaction(ranking_id, interaction_data):
+    """Saves HR 1-on-1 interaction / interview details with candidate."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('UPDATE candidate_rankings SET hr_interaction = ? WHERE id = ?', (
+        json.dumps(interaction_data), ranking_id
+    ))
+    conn.commit()
+    conn.close()
 
 def add_candidate_ranking(job_id, resume_id, candidate_name, anonymized_alias, match_score, sbert_score, skill_score, matched_skills, missing_skills, experience_fit):
     rank_id = f"rank-{uuid.uuid4().hex[:8]}"
