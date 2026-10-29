@@ -555,6 +555,23 @@ def delete_job(job_id):
     conn.commit()
     conn.close()
 
+def update_job(job_id, title, department, experience_level, location, required_skills, description):
+    """Updates an existing job opening and description."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    UPDATE jobs
+    SET title = ?, department = ?, experience_level = ?, location = ?, required_skills = ?, description = ?
+    WHERE id = ?
+    """, (
+        title, department, experience_level, location,
+        json.dumps(required_skills) if isinstance(required_skills, list) else required_skills,
+        description, job_id
+    ))
+    conn.commit()
+    conn.close()
+    return get_job_by_id(job_id)
+
 def get_rankings_for_job(job_id):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -696,6 +713,22 @@ def get_resume_by_id(resume_id):
         pass
     return res
 
+def add_resume(resume_id, candidate_name, candidate_email, candidate_phone, education, experience_years, skills, raw_text, anonymized_alias):
+    """Inserts or updates a candidate resume in the database."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+    INSERT OR REPLACE INTO resumes (
+        id, candidate_name, candidate_email, candidate_phone, education, experience_years, skills, raw_text, anonymized_alias
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        resume_id, candidate_name, candidate_email, candidate_phone, education, experience_years,
+        json.dumps(skills) if isinstance(skills, list) else skills, raw_text, anonymized_alias
+    ))
+    conn.commit()
+    conn.close()
+    return resume_id
+
 def get_all_resumes():
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -708,6 +741,59 @@ def get_all_resumes():
             item['skills'] = json.loads(item['skills'])
         except:
             pass
+        resumes.append(item)
+    conn.close()
+    return resumes
+
+def get_all_resumes_with_applications():
+    """Returns candidate resumes alongside their job rankings and match scores for HR verification."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM resumes ORDER BY created_at DESC')
+    rows = cursor.fetchall()
+    resumes = []
+    for r in rows:
+        item = dict(r)
+        try:
+            item['skills'] = json.loads(item['skills'])
+        except Exception:
+            item['skills'] = []
+        
+        # Fetch related candidate rankings / applications
+        cursor.execute('''
+        SELECT cr.*, j.title as job_title, j.department as job_department
+        FROM candidate_rankings cr
+        LEFT JOIN jobs j ON cr.job_id = j.id
+        WHERE cr.resume_id = ? OR cr.candidate_name = ?
+        ORDER BY cr.match_score DESC
+        ''', (item['id'], item['candidate_name']))
+        rankings = []
+        for r_row in cursor.fetchall():
+            r_item = dict(r_row)
+            try:
+                r_item['matched_skills'] = json.loads(r_item['matched_skills'])
+            except Exception:
+                r_item['matched_skills'] = []
+            try:
+                r_item['missing_skills'] = json.loads(r_item['missing_skills'])
+            except Exception:
+                r_item['missing_skills'] = []
+            rankings.append(r_item)
+        
+        item['applications'] = rankings
+        if rankings:
+            item['primary_job_title'] = rankings[0].get('job_title') or 'Target Opening'
+            item['primary_job_id'] = rankings[0].get('job_id')
+            item['primary_match_score'] = rankings[0].get('match_score', 85.0)
+            item['primary_status'] = rankings[0].get('status', 'Screened')
+            item['sbert_score'] = rankings[0].get('sbert_score', 0.85)
+        else:
+            item['primary_job_title'] = 'Active Applicant Pool'
+            item['primary_job_id'] = None
+            item['primary_match_score'] = 82.0
+            item['primary_status'] = 'Screened'
+            item['sbert_score'] = 0.80
+            
         resumes.append(item)
     conn.close()
     return resumes

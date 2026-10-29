@@ -10,7 +10,7 @@ import {
   Loader2, ServerCrash, User, MessageSquare, Play, StopCircle, RefreshCw,
   ShieldCheck, Users, Layers, Scale, Eye, EyeOff, Plus, Trash2, Sparkles, Building,
   CheckSquare, Award, Clock, ArrowRight, ArrowLeft, ChevronRight, ChevronLeft, Download, Printer, Search,
-  Filter, Sliders, BookOpen, Cpu, Calculator, History, Camera, CameraOff, Video, VideoOff,
+  Filter, Settings2, BookOpen, Cpu, Calculator, History, Camera, CameraOff, Video, VideoOff,
   LogIn, LogOut, Lock, Mail, ShieldAlert, GraduationCap, Phone, Calendar, UserCheck, X
 } from 'lucide-react';
 
@@ -927,7 +927,8 @@ function Navbar({
   canGoForward,
 }) {
   const recruiterTabs = [
-    { id: 'jobs', label: 'Upload & Manage Jobs', icon: Briefcase, moduleNum: 'Jobs' },
+    { id: 'jobs', label: 'Job Descriptions & Openings', icon: Briefcase, moduleNum: 'Jobs' },
+    { id: 'upload', label: 'Candidate Resumes', icon: FileText, moduleNum: 'Resumes' },
     { id: 'rankings', label: 'Candidate Applications & Ranking', icon: Users, moduleNum: 'ATS' },
     { id: 'reports', label: 'Interview Evaluations & Decisions', icon: Award, moduleNum: 'Decisions' },
     { id: 'scalability', label: 'Hiring Analytics', icon: TrendingUp, badge: 'ROI' },
@@ -1009,7 +1010,7 @@ function Navbar({
         </div>
 
         {/* Central Nav Tabs */}
-        <nav className="flex items-center space-x-1 overflow-x-auto pb-1 md:pb-0">
+        <nav className="flex items-center space-x-1 overflow-x-auto no-scrollbar pb-1 md:pb-0">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1103,8 +1104,8 @@ function WorkflowStepsBanner({
   canGoForward,
 }) {
   const recruiterSteps = [
-    { num: 1, label: 'Manage Jobs', desc: 'Post Openings & Descriptions', tab: 'jobs', icon: Briefcase },
-    { num: 2, label: 'Screen Resumes', desc: 'PDF Parsing & Semantic Fit', tab: 'upload', icon: FileText },
+    { num: 1, label: 'Manage Jobs', desc: 'Edit & Post Job Descriptions', tab: 'jobs', icon: Briefcase },
+    { num: 2, label: 'Candidate Resumes', desc: 'Verify Submitted Candidate Resumes', tab: 'upload', icon: FileText },
     { num: 3, label: 'Candidate Pool & Q&A', desc: 'Applied Applicants & Results', tab: 'rankings', icon: Users },
     { num: 4, label: 'Fit Evaluation', desc: 'Mark Perfect, Fit, or Unfit', tab: 'rankings', icon: CheckSquare },
     { num: 5, label: '1-on-1 Interaction', desc: 'HR Direct Interview & Decisions', tab: 'rankings', icon: UserCheck },
@@ -1129,11 +1130,11 @@ function WorkflowStepsBanner({
       if (activeTab === 'final_report' || activeTab === 'reports') return 5;
       return null;
     } else {
-      if (activeTab === 'upload') return 1;
-      if (activeTab === 'report') return 2;
+      if (activeTab === 'jobs') return 1;
+      if (activeTab === 'upload') return 2;
       if (activeTab === 'rankings') return 3;
-      if (activeTab === 'setup' || activeTab === 'interview') return 4;
-      if (activeTab === 'final_report' || activeTab === 'reports') return 5;
+      if (activeTab === 'report' || activeTab === 'reports') return 4;
+      if (activeTab === 'interact') return 5;
       return null;
     }
   };
@@ -1185,7 +1186,7 @@ function WorkflowStepsBanner({
         </div>
 
         {/* 5 Connected Steps */}
-        <div className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto py-1">
+        <div className="flex items-center space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar py-1">
           {steps.map((s, idx) => {
             const isCurrent = activeStepNum === s.num;
             const isCompleted = activeStepNum ? activeStepNum > s.num : false;
@@ -1363,6 +1364,63 @@ function JobsView({ jobsList, refreshJobs, setSelectedJobId, setActiveTab, setLo
   const [newLocation, setNewLocation] = useState('Remote / Hybrid');
   const [newSkillsStr, setNewSkillsStr] = useState('python, react, docker, sql');
   const [newDescription, setNewDescription] = useState('');
+
+  // Edit Job Opening State
+  const [editingJob, setEditingJob] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDepartment, setEditDepartment] = useState('Engineering & AI');
+  const [editExpLevel, setEditExpLevel] = useState('Mid-Level');
+  const [editLocation, setEditLocation] = useState('Remote / Hybrid');
+  const [editSkillsStr, setEditSkillsStr] = useState('');
+  const [editDescription, setEditDescription] = useState('');
+  const [editFileNotice, setEditFileNotice] = useState('');
+
+  const handleOpenEditModal = (job) => {
+    setEditingJob(job);
+    setEditTitle(job.title || '');
+    setEditDepartment(job.department || 'Engineering & AI');
+    setEditExpLevel(job.experience_level || 'Mid-Level');
+    setEditLocation(job.location || 'Remote');
+    setEditSkillsStr(Array.isArray(job.required_skills) ? job.required_skills.join(', ') : (job.required_skills || ''));
+    setEditDescription(job.description || '');
+    setEditFileNotice('');
+  };
+
+  const handleEditJDFileUpload = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setEditDescription(e.target.result);
+      setEditFileNotice(`Imported description from ${file.name}`);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSaveEditJob = async (e) => {
+    e.preventDefault();
+    if (!editTitle.trim() || !editDescription.trim()) {
+      setError('Please provide a job title and job description.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const skillsArray = editSkillsStr.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+      await axios.put(`${API_URL}/api/jobs/${editingJob.id}`, {
+        title: editTitle,
+        department: editDepartment,
+        experience_level: editExpLevel,
+        location: editLocation,
+        required_skills: skillsArray,
+        description: editDescription,
+      });
+      setEditingJob(null);
+      refreshJobs();
+    } catch (err) {
+      setError('Failed to update job description: ' + (err.response?.data?.error || err.message));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleCreateJob = async (e) => {
     e.preventDefault();
@@ -1550,21 +1608,19 @@ function JobsView({ jobsList, refreshJobs, setSelectedJobId, setActiveTab, setLo
                       setSelectedJobId(job.id);
                       setActiveTab('rankings');
                     }}
-                    className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-semibold transition-all"
+                    className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-semibold transition-all cursor-pointer"
                   >
                     <Users className="w-3.5 h-3.5" />
                     <span>Ranked Pool</span>
                   </button>
 
                   <button
-                    onClick={() => {
-                      setSelectedJobId(job.id);
-                      setActiveTab('upload');
-                    }}
-                    className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold transition-all shadow-sm"
+                    onClick={() => handleOpenEditModal(job)}
+                    className="flex-1 flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                    title="Edit Job Description & Requirements"
                   >
-                    <FileText className="w-3.5 h-3.5" />
-                    <span>Screen Resume</span>
+                    <Edit3 className="w-3.5 h-3.5" />
+                    <span>Edit</span>
                   </button>
                 </>
               )}
@@ -1652,15 +1708,142 @@ function JobsView({ jobsList, refreshJobs, setSelectedJobId, setActiveTab, setLo
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 shadow-sm"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 shadow-sm cursor-pointer"
                 >
                   Create Posting
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Job Description & Requirements Modal */}
+      {editingJob && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                  EDIT JOB OPENING
+                </span>
+                <h3 className="text-lg font-bold text-slate-900 mt-1">Edit Job Description & Competencies</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingJob(null)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEditJob} className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Job Title</label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-medium"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Department</label>
+                  <input
+                    type="text"
+                    value={editDepartment}
+                    onChange={(e) => setEditDepartment(e.target.value)}
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Experience Level</label>
+                  <select
+                    value={editExpLevel}
+                    onChange={(e) => setEditExpLevel(e.target.value)}
+                    className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 bg-white"
+                  >
+                    <option value="Entry">Entry (0-2 yrs)</option>
+                    <option value="Mid-Level">Mid-Level (3-5 yrs)</option>
+                    <option value="Senior">Senior (5+ yrs)</option>
+                    <option value="Lead">Lead / Staff</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Location</label>
+                <input
+                  type="text"
+                  value={editLocation}
+                  onChange={(e) => setEditLocation(e.target.value)}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Required Competencies (Comma separated)</label>
+                <input
+                  type="text"
+                  value={editSkillsStr}
+                  onChange={(e) => setEditSkillsStr(e.target.value)}
+                  className="w-full text-xs p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
+                  placeholder="e.g. python, pytorch, docker, sql, rest api"
+                />
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-xs font-semibold text-slate-700">Job Description & Specifications</label>
+                  <label className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 cursor-pointer flex items-center space-x-1">
+                    <Download className="w-3 h-3 rotate-180" />
+                    <span>Upload JD File (.txt, .md)</span>
+                    <input
+                      type="file"
+                      accept=".txt,.md"
+                      className="hidden"
+                      onChange={(e) => handleEditJDFileUpload(e.target.files[0])}
+                    />
+                  </label>
+                </div>
+                {editFileNotice && (
+                  <div className="text-[11px] text-emerald-700 bg-emerald-50 px-2 py-1 rounded border border-emerald-200 mb-2 font-medium">
+                    {editFileNotice}
+                  </div>
+                )}
+                <textarea
+                  rows="6"
+                  required
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  placeholder="Detailed requirements, role background, and responsibilities..."
+                  className="w-full text-xs p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 font-mono"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setEditingJob(null)}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 shadow-sm cursor-pointer"
+                >
+                  Save Changes
                 </button>
               </div>
             </form>
@@ -2685,13 +2868,21 @@ function CandidateInteractModal({ candidate, job, onClose, onStatusChange }) {
 }
 
 // ==========================================
-// MODULE 2 & 3: RESUME PARSER & MATCH VIEW
+// MODULE 2 & 3: RESUME PARSER, CANDIDATE RESUMES & MATCH VIEW
 // ==========================================
 function UploadView({ jobsList, selectedJobId, setSelectedJobId, setSessionData, setActiveTab, setLoading, setError, loading, targetSegment, userRole }) {
   const [jd, setJd] = useState('');
   const [resumeFile, setResumeFile] = useState(null);
   const [useJobCatalog, setUseJobCatalog] = useState(true);
   const [blindScreening, setBlindScreening] = useState(true);
+
+  // Recruiter Candidate Resumes State
+  const [resumesList, setResumesList] = useState([]);
+  const [filterJobId, setFilterJobId] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewingResume, setViewingResume] = useState(null);
+  const [copiedResume, setCopiedResume] = useState(false);
+  const [showManualIngest, setShowManualIngest] = useState(false);
 
   // Sync JD text when selectedJobId changes
   useEffect(() => {
@@ -2702,6 +2893,22 @@ function UploadView({ jobsList, selectedJobId, setSelectedJobId, setSessionData,
       }
     }
   }, [selectedJobId, useJobCatalog, jobsList]);
+
+  // Fetch candidate resumes for HR verification
+  const fetchResumes = async () => {
+    try {
+      const res = await axios.get(`${API_URL}/api/resumes`);
+      setResumesList(res.data.resumes || []);
+    } catch (err) {
+      console.warn('Failed to load candidate resumes:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (userRole === 'recruiter') {
+      fetchResumes();
+    }
+  }, [userRole]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -2735,7 +2942,13 @@ function UploadView({ jobsList, selectedJobId, setSelectedJobId, setSessionData,
         blindScreening: response.data.blind_screening,
         jobRole: jobsList.find((j) => j.id === selectedJobId)?.title || 'Software Engineer',
       });
-      setActiveTab('report');
+      if (userRole === 'recruiter') {
+        setShowManualIngest(false);
+        setResumeFile(null);
+        await fetchResumes();
+      } else {
+        setActiveTab('report');
+      }
     } catch (err) {
       setError('Failed to analyze: ' + (err.response?.data?.error || err.message));
     } finally {
@@ -2795,31 +3008,486 @@ function UploadView({ jobsList, selectedJobId, setSelectedJobId, setSessionData,
     }
   };
 
+  const handleDownloadResume = (resItem) => {
+    if (resItem.candidate_name?.includes('Alex Chen')) {
+      const a = document.createElement('a');
+      a.href = '/Sample_Resume_AI_Engineer_Alex_Chen.pdf';
+      a.download = 'Sample_Resume_AI_Engineer_Alex_Chen.pdf';
+      a.click();
+    } else if (resItem.candidate_name?.includes('Elena Rostova')) {
+      const a = document.createElement('a');
+      a.href = '/Sample_Resume_FullStack_Elena_Rostova.pdf';
+      a.download = 'Sample_Resume_FullStack_Elena_Rostova.pdf';
+      a.click();
+    } else {
+      const blob = new Blob([
+        `SMART RECRUIT - CANDIDATE RESUME DOSSIER\n` +
+        `Candidate: ${resItem.candidate_name} (${resItem.anonymized_alias})\n` +
+        `Target Role: ${resItem.primary_job_title}\n` +
+        `Match Score: ${resItem.primary_match_score}%\n` +
+        `Email: ${resItem.candidate_email}\n` +
+        `Phone: ${resItem.candidate_phone}\n` +
+        `Education: ${resItem.education}\n` +
+        `Experience: ${resItem.experience_years} years\n` +
+        `Competencies: ${(resItem.skills || []).join(', ')}\n\n` +
+        `--- RAW RESUME CONTENT ---\n${resItem.raw_text}`
+      ], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Resume_${(resItem.candidate_name || 'Candidate').replace(/\s+/g, '_')}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const handleCopyResumeText = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopiedResume(true);
+    setTimeout(() => setCopiedResume(false), 2000);
+  };
+
+  const filteredResumes = resumesList.filter((res) => {
+    if (filterJobId !== 'all') {
+      const matchJob = res.primary_job_id === filterJobId ||
+        (res.applications && res.applications.some((a) => a.job_id === filterJobId));
+      if (!matchJob) return false;
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const nameMatch = res.candidate_name?.toLowerCase().includes(q) || res.anonymized_alias?.toLowerCase().includes(q);
+      const skillMatch = res.skills && res.skills.some((s) => s.toLowerCase().includes(q));
+      const textMatch = res.raw_text?.toLowerCase().includes(q);
+      if (!nameMatch && !skillMatch && !textMatch) return false;
+    }
+    return true;
+  });
+
+  // ==========================================
+  // RECRUITER VIEW: Candidate Resumes & Verification Portal
+  // ==========================================
+  if (userRole === 'recruiter') {
+    return (
+      <div className="space-y-6">
+        {/* Banner */}
+        <div className="bg-gradient-to-r from-indigo-900 via-indigo-800 to-blue-900 rounded-2xl p-6 text-white shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center space-x-2 text-xs font-semibold mb-1">
+              <Sparkles className="w-4 h-4 text-amber-300" />
+              <span className="text-indigo-200">MODULE 2: CANDIDATE RESUMES & APPLICANT VERIFICATION</span>
+            </div>
+            <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight">
+              Candidate Resumes & Verification
+            </h2>
+            <p className="text-xs md:text-sm mt-1 max-w-2xl text-slate-300">
+              Verify candidate resumes submitted for job openings. Evaluate extracted technical competencies, S-BERT semantic similarity, and experience qualification.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={fetchResumes}
+              className="flex items-center space-x-1.5 px-3 py-2 bg-indigo-800/80 hover:bg-indigo-700 text-white font-semibold rounded-xl text-xs border border-indigo-600 transition-all cursor-pointer shadow-sm"
+              title="Refresh candidate resumes from applicant pool"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              <span>Refresh</span>
+            </button>
+            <button
+              onClick={() => setShowManualIngest(!showManualIngest)}
+              className="flex items-center space-x-1.5 px-3.5 py-2 bg-white text-indigo-900 hover:bg-indigo-50 font-semibold rounded-xl text-xs shadow-md transition-all cursor-pointer"
+            >
+              <Plus className="w-4 h-4 text-indigo-700" />
+              <span>{showManualIngest ? 'Close Ingest' : 'Ingest External Resume'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Filters & Search */}
+        <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center space-x-2">
+              <span className="text-xs font-bold text-slate-700">Filter by Opening:</span>
+              <select
+                value={filterJobId}
+                onChange={(e) => setFilterJobId(e.target.value)}
+                className="text-xs font-semibold p-2 bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              >
+                <option value="all">🌟 All Openings ({resumesList.length} Resumes)</option>
+                {jobsList.map((job) => (
+                  <option key={job.id} value={job.id}>
+                    {job.title} ({job.department})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="relative flex-1 min-w-[220px]">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search candidate name or skill..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div className="text-xs font-bold text-slate-600 bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 self-start md:self-auto">
+            Total Candidate Resumes: <span className="text-indigo-600 font-extrabold">{filteredResumes.length}</span>
+          </div>
+        </div>
+
+        {/* Collapsible Manual Ingest Form */}
+        {showManualIngest && (
+          <div className="bg-indigo-50/70 p-6 rounded-2xl border border-indigo-200 shadow-sm animate-in fade-in">
+            <div className="max-w-2xl mx-auto space-y-4">
+              <div className="flex items-center justify-between border-b border-indigo-200 pb-2">
+                <div>
+                  <h3 className="text-sm font-bold text-indigo-950 flex items-center space-x-1.5">
+                    <FileText className="w-4 h-4 text-indigo-600" />
+                    <span>Ingest External Candidate Resume on Behalf of Applicant</span>
+                  </h3>
+                  <p className="text-xs text-indigo-700 mt-0.5">
+                    Upload an external applicant's PDF resume to parse competencies and verify fit.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowManualIngest(false)}
+                  className="text-indigo-700 hover:text-indigo-950 text-xs font-bold"
+                >
+                  &times; Close
+                </button>
+              </div>
+
+              <form onSubmit={handleSubmit} className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Target Job Opening</label>
+                  <select
+                    value={selectedJobId || ''}
+                    onChange={(e) => setSelectedJobId(e.target.value)}
+                    className="w-full text-xs font-semibold p-2 bg-white border border-slate-300 rounded-lg"
+                  >
+                    {jobsList.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.title} — {job.department}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Select Candidate Resume PDF</label>
+                  <input
+                    type="file"
+                    accept=".pdf"
+                    required
+                    onChange={(e) => setResumeFile(e.target.files[0])}
+                    className="w-full text-xs text-slate-600 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 file:text-indigo-800 hover:file:bg-indigo-200"
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2">
+                  <input
+                    id="rec_blind"
+                    type="checkbox"
+                    checked={blindScreening}
+                    onChange={(e) => setBlindScreening(e.target.checked)}
+                    className="h-4 w-4 text-indigo-600 rounded"
+                  />
+                  <label htmlFor="rec_blind" className="text-xs font-semibold text-slate-700">
+                    Apply blind screening anonymization
+                  </label>
+                </div>
+
+                <div className="flex justify-end space-x-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowManualIngest(false)}
+                    className="px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 shadow-sm disabled:bg-slate-400"
+                  >
+                    {loading ? 'Parsing Resume...' : 'Parse & Add to Candidate Pool'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Candidate Resumes Cards Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {filteredResumes.map((resItem) => {
+            const initials = resItem.candidate_name
+              ? resItem.candidate_name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+              : 'CA';
+            const score = resItem.primary_match_score || 80.0;
+            const isHigh = score >= 85;
+            const isFit = score >= 50 && score < 85;
+
+            return (
+              <div
+                key={resItem.id}
+                className="bg-white rounded-2xl p-6 border border-slate-200 shadow-sm hover:shadow-md transition-all flex flex-col justify-between"
+              >
+                <div>
+                  {/* Top Bar */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-11 h-11 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-sm shadow-inner border border-indigo-200">
+                        {initials}
+                      </div>
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h4 className="text-base font-bold text-slate-900">{resItem.candidate_name}</h4>
+                          <span className="text-[10px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200">
+                            {resItem.anonymized_alias}
+                          </span>
+                        </div>
+                        <span className="text-xs text-indigo-700 font-semibold bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100 inline-block mt-0.5">
+                          {resItem.primary_job_title}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Match Score Badge */}
+                    <div
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold border flex items-center space-x-1 ${
+                        isHigh
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : isFit
+                          ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                          : 'bg-rose-50 text-rose-700 border-rose-200'
+                      }`}
+                    >
+                      <Sparkles className="w-3 h-3" />
+                      <span>{score}% Match</span>
+                    </div>
+                  </div>
+
+                  {/* Profile Info */}
+                  <div className="mt-4 pt-3 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs text-slate-600">
+                    <div className="flex items-center space-x-1.5">
+                      <GraduationCap className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span className="truncate" title={resItem.education}>{resItem.education || 'Technical Background'}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <Clock className="w-3.5 h-3.5 text-indigo-600 shrink-0" />
+                      <span>{resItem.experience_years} Years Experience</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="truncate">{resItem.candidate_email || 'Confidential'}</span>
+                    </div>
+                    <div className="flex items-center space-x-1.5">
+                      <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span>{resItem.candidate_phone || 'Confidential'}</span>
+                    </div>
+                  </div>
+
+                  {/* Extracted Competencies */}
+                  <div className="mt-3">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                      Verified Competencies:
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {(resItem.skills || []).slice(0, 7).map((skill, sIdx) => (
+                        <span
+                          key={sIdx}
+                          className="text-[11px] font-medium bg-slate-100 text-slate-700 px-2 py-0.5 rounded-md border border-slate-200 font-mono"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                      {(resItem.skills || []).length > 7 && (
+                        <span className="text-[10px] font-semibold text-slate-400 px-1 py-0.5">
+                          +{(resItem.skills || []).length - 7} more
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Raw Resume Excerpt */}
+                  <div className="mt-3 p-2.5 bg-slate-50 rounded-lg border border-slate-200 text-xs text-slate-600 italic line-clamp-2">
+                    "{resItem.raw_text}"
+                  </div>
+                </div>
+
+                {/* Actions Footer */}
+                <div className="mt-5 pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setViewingResume(resItem)}
+                    className="flex-1 flex items-center justify-center space-x-1 py-2 px-2.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-all cursor-pointer"
+                  >
+                    <Eye className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Inspect Resume</span>
+                  </button>
+
+                  <button
+                    onClick={() => handleDownloadResume(resItem)}
+                    className="flex items-center justify-center space-x-1 py-2 px-2.5 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 text-xs font-semibold transition-all cursor-pointer"
+                    title="Download candidate resume document"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    <span>Download</span>
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      if (resItem.primary_job_id) {
+                        setSelectedJobId(resItem.primary_job_id);
+                      }
+                      setActiveTab('rankings');
+                    }}
+                    className="flex-1 flex items-center justify-center space-x-1 py-2 px-2.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-xs font-semibold transition-all shadow-sm cursor-pointer"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5" />
+                    <span>Verify Fit & Q&A</span>
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        {filteredResumes.length === 0 && (
+          <div className="text-center p-12 bg-white rounded-2xl border border-slate-200">
+            <FileText className="w-12 h-12 text-slate-300 mx-auto mb-2" />
+            <h4 className="text-base font-bold text-slate-700">No Candidate Resumes Found</h4>
+            <p className="text-xs text-slate-500 mt-1">
+              No applicant resumes matched your filter criteria. Candidates who submit their resumes in the Candidate Portal will appear here.
+            </p>
+          </div>
+        )}
+
+        {/* Full Resume Inspection Modal */}
+        {viewingResume && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-2xl border border-slate-200 animate-in fade-in max-h-[90vh] flex flex-col justify-between">
+              <div>
+                <div className="flex items-start justify-between pb-3 border-b border-slate-100">
+                  <div>
+                    <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      CANDIDATE RESUME DOSSIER
+                    </span>
+                    <h3 className="text-xl font-bold text-slate-900 mt-1">
+                      {viewingResume.candidate_name} &bull; <span className="text-slate-500 font-medium">{viewingResume.anonymized_alias}</span>
+                    </h3>
+                    <p className="text-xs text-indigo-700 font-semibold mt-0.5">
+                      Applied for: {viewingResume.primary_job_title} &bull; {viewingResume.primary_match_score}% Match Score
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setViewingResume(null)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 my-4 bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Education</span>
+                    <span className="font-semibold text-slate-800">{viewingResume.education || 'N/A'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Experience</span>
+                    <span className="font-semibold text-slate-800">{viewingResume.experience_years} Years</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Email</span>
+                    <span className="font-semibold text-slate-800 truncate block">{viewingResume.candidate_email || 'Confidential'}</span>
+                  </div>
+                  <div>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase block">Phone</span>
+                    <span className="font-semibold text-slate-800">{viewingResume.candidate_phone || 'Confidential'}</span>
+                  </div>
+                </div>
+
+                <div className="mb-3">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block mb-1">
+                    Extracted Competencies:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                    {(viewingResume.skills || []).map((sk, idx) => (
+                      <span
+                        key={idx}
+                        className="text-xs font-semibold bg-indigo-50 text-indigo-700 px-2.5 py-0.5 rounded-md border border-indigo-200 font-mono"
+                      >
+                        {sk}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                      Full Extracted Resume Text:
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleCopyResumeText(viewingResume.raw_text)}
+                      className="text-[11px] font-bold text-indigo-600 hover:text-indigo-800 flex items-center space-x-1 cursor-pointer"
+                    >
+                      <Check className={`w-3 h-3 ${copiedResume ? 'text-emerald-600' : 'hidden'}`} />
+                      <span>{copiedResume ? 'Copied!' : 'Copy Text'}</span>
+                    </button>
+                  </div>
+                  <pre className="font-mono text-xs p-3.5 bg-slate-900 text-slate-100 rounded-xl overflow-y-auto max-h-56 whitespace-pre-wrap leading-relaxed border border-slate-800 shadow-inner">
+                    {viewingResume.raw_text}
+                  </pre>
+                </div>
+              </div>
+
+              <div className="flex justify-between items-center pt-4 border-t border-slate-100 mt-4">
+                <button
+                  type="button"
+                  onClick={() => handleDownloadResume(viewingResume)}
+                  className="px-3.5 py-2 border border-indigo-200 text-indigo-700 hover:bg-indigo-50 rounded-lg text-xs font-semibold flex items-center space-x-1.5 cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Download Resume File</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewingResume(null)}
+                  className="px-4 py-2 bg-slate-800 text-white rounded-lg text-xs font-semibold hover:bg-slate-700 cursor-pointer shadow-sm"
+                >
+                  Close Dossier
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ==========================================
+  // CANDIDATE VIEW: Submit / Update Resume & Check Eligibility
+  // ==========================================
+
   return (
     <div className="max-w-3xl mx-auto bg-white p-8 rounded-2xl shadow-xl border border-slate-200">
-      {userRole === 'candidate' ? (
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center space-x-2 text-emerald-600 text-xs font-bold uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full mb-2 border border-emerald-200">
-            <FileText className="w-4 h-4" />
-            <span>CANDIDATE RESUME UPDATE & ELIGIBILITY CHECK</span>
-          </div>
-          <h2 className="text-2xl font-extrabold text-slate-900">Update Your Resume & Check Fit Score</h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto">
-            Upload or update your resume PDF below or select a verified test resume. An <strong>Overall Match Score &gt; 50%</strong> is strictly required to qualify for the Live Face-to-Face AI Mock Interview.
-          </p>
+      <div className="text-center mb-6">
+        <div className="inline-flex items-center space-x-2 text-emerald-600 text-xs font-bold uppercase tracking-wider bg-emerald-50 px-3 py-1 rounded-full mb-2 border border-emerald-200">
+          <FileText className="w-4 h-4" />
+          <span>CANDIDATE RESUME UPDATE & ELIGIBILITY CHECK</span>
         </div>
-      ) : (
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center space-x-2 text-indigo-600 text-xs font-bold uppercase tracking-wider bg-indigo-50 px-3 py-1 rounded-full mb-2">
-            <FileText className="w-4 h-4" />
-            <span>MODULE 2: RESUME PARSING & S-BERT EXTRACTION</span>
-          </div>
-          <h2 className="text-2xl font-extrabold text-slate-900">AI Resume Screening & Fit Analysis</h2>
-          <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto">
-            Upload any candidate PDF resume to parse competencies, calculate S-BERT semantic similarity, and check experience fit against target job criteria.
-          </p>
-        </div>
-      )}
+        <h2 className="text-2xl font-extrabold text-slate-900">Update Your Resume & Check Fit Score</h2>
+        <p className="text-xs text-slate-500 mt-1 max-w-lg mx-auto">
+          Upload or update your resume PDF below or select a verified test resume. An <strong>Overall Match Score &gt; 50%</strong> is strictly required to qualify for the Live Face-to-Face AI Mock Interview.
+        </p>
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Job Selection Toggle */}
@@ -2996,43 +3664,23 @@ function UploadView({ jobsList, selectedJobId, setSelectedJobId, setSessionData,
 
         {/* Action Buttons */}
         <div className="space-y-3">
-          {userRole === 'candidate' ? (
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:bg-slate-400 shadow-lg shadow-emerald-200 transition-all"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Evaluating S-BERT Semantic Fit...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-5 h-5" />
-                  <span>Analyze My Resume Fit (&gt;50% Match Required)</span>
-                </>
-              )}
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={loading}
-              className="w-full flex items-center justify-center space-x-2 py-3 px-4 rounded-xl text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:bg-slate-400 shadow-md transition-all"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                  <span>Running S-BERT & Competency Analysis...</span>
-                </>
-              ) : (
-                <>
-                  <Brain className="w-5 h-5" />
-                  <span>Screen & Parse Candidate Resume</span>
-                </>
-              )}
-            </button>
-          )}
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex items-center justify-center space-x-2 py-3.5 px-4 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 disabled:bg-slate-400 shadow-lg shadow-emerald-200 transition-all cursor-pointer"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Evaluating S-BERT Semantic Fit...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-5 h-5" />
+                <span>Analyze My Resume Fit (&gt;50% Match Required)</span>
+              </>
+            )}
+          </button>
 
           {/* Candidate-only Quick Start Mock Practice */}
           {userRole === 'candidate' && (
@@ -5641,7 +6289,7 @@ function ScalabilityImpactView({ jobsList, setActiveTab }) {
         </p>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6 pt-6 border-t border-slate-800">
-          {/* Sliders */}
+          {/* Parameter Controls */}
           <div className="lg:col-span-2 space-y-5">
             <div>
               <div className="flex justify-between text-xs font-semibold mb-1">
@@ -5891,7 +6539,7 @@ function EthicsSustainabilityView({ targetSegment, setTargetSegment, pricingTier
             activeTabSub === 'weights' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-100'
           }`}
         >
-          <Sliders className="w-3.5 h-3.5" />
+          <Settings2 className="w-3.5 h-3.5" />
           <span>Score Explainability Calibrator</span>
         </button>
       </div>

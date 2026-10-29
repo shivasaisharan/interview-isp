@@ -262,6 +262,48 @@ def remove_job(job_id):
     database.log_audit_action("JOB_DELETED", "recruiter", {"job_id": job_id})
     return jsonify({"message": "Job removed successfully"})
 
+@app.route('/api/jobs/<job_id>', methods=['PUT'])
+def update_job_spec(job_id):
+    """
+    Updates an existing job description, requirements, and metadata.
+    Enables HR to edit job descriptions directly.
+    """
+    data = request.json or {}
+    title = data.get('title')
+    department = data.get('department', 'General')
+    experience_level = data.get('experience_level', 'Mid-Level')
+    location = data.get('location', 'Remote')
+    required_skills = data.get('required_skills', [])
+    description = data.get('description', '')
+
+    if not title or not description:
+        return jsonify({"error": "Title and description are required"}), 400
+
+    updated = database.update_job(job_id, title, department, experience_level, location, required_skills, description)
+    if not updated:
+        return jsonify({"error": "Job opening not found"}), 404
+
+    database.log_audit_action("JOB_UPDATED", "recruiter", {"job_id": job_id, "title": title})
+    return jsonify({"message": "Job updated successfully", "job": updated})
+
+@app.route('/api/resumes', methods=['GET'])
+def list_candidate_resumes():
+    """
+    Returns candidate resumes with applied job rankings, match scores, and parsed skills for HR verification.
+    """
+    resumes = database.get_all_resumes_with_applications()
+    return jsonify({"resumes": resumes})
+
+@app.route('/api/resumes/<resume_id>', methods=['GET'])
+def get_single_resume(resume_id):
+    """
+    Returns full details and text of a single candidate resume for HR inspection.
+    """
+    resume = database.get_resume_by_id(resume_id)
+    if not resume:
+        return jsonify({"error": "Resume not found"}), 404
+    return jsonify({"resume": resume})
+
 # --- Module 2 & 3: Resume Parsing, Analysis & Candidate Ranking ---
 @app.route('/analyze', methods=['POST'])
 def analyze_resume():
@@ -317,6 +359,24 @@ def analyze_resume():
             "analysis": analysis_report,
             "chat_history": []
         }
+
+        # Save resume to database for HR inspection & candidate tracking
+        try:
+            exp_years = float(analysis_report.get('Experience Fit', {}).get('candidate_years', 3.0))
+            skills_extracted = analysis_report.get('Skill Analysis', {}).get('Candidate Skills', [])
+            database.add_resume(
+                resume_id=session_id,
+                candidate_name=real_name,
+                candidate_email=email,
+                candidate_phone=phone,
+                education=analysis_report.get('Education Fit', 'Technical Degree / Relevant Experience'),
+                experience_years=exp_years,
+                skills=skills_extracted,
+                raw_text=resume_text,
+                anonymized_alias=anonymized_alias
+            )
+        except Exception as r_err:
+            print(f"Notice saving resume record: {r_err}")
 
         # Save to database candidate_rankings if job_id exists
         if job_id:

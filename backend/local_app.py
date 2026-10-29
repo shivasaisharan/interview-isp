@@ -59,11 +59,11 @@ except ImportError:
 try:
     from kokoro import KPipeline
     print("Loading Kokoro TTS model (American English)...")
-    tts_pipeline = KPipeline(lang_code='a') 
+    tts_engine = KPipeline(lang_code='a') 
     print("Kokoro TTS loaded.")
 except ImportError:
     print("Warning: kokoro not installed. Local TTS will return empty audio.")
-    tts_pipeline = None
+    tts_engine = None
 
 # --- App Setup ---
 app = Flask(__name__)
@@ -119,12 +119,12 @@ def call_ollama(messages, system_prompt, json_mode=False):
 
 def generate_local_tts(text_to_speak):
     """Generates speech locally using Kokoro-82M and returns base64 audio data."""
-    if not tts_pipeline:
+    if not tts_engine:
         return "", "audio/wav"
     
     try:
         # Generate audio segments
-        generator = tts_pipeline(text_to_speak, voice='af_bella', speed=1.0, split_pattern=r'\n+')
+        generator = tts_engine(text_to_speak, voice='af_bella', speed=1.0, split_pattern=r'\n+')
         all_audio = []
         sample_rate = 24000
         
