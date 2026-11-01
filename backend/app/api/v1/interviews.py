@@ -1,8 +1,10 @@
 import os
+import uuid
 from typing import List, Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.api.deps import get_db, require_candidate
 from app.models.models import (
     InterviewSession, InterviewQuestion, InterviewAnswer, InterviewReport,

@@ -61,6 +61,20 @@ def get_job_by_id(job_id: str, db: Session = Depends(get_db)):
     out.applicants_count = len(job.applications)
     return out
 
+def dedup_skills(items: Optional[List[str]]) -> List[str]:
+    """Deduplicates a list of skills case-insensitively while preserving original casing."""
+    if not items:
+        return []
+    seen = set()
+    res = []
+    for x in items:
+        if isinstance(x, str):
+            c = x.strip()
+            if c and c.lower() not in seen:
+                seen.add(c.lower())
+                res.append(c)
+    return res
+
 @router.post("", response_model=JobOut, status_code=status.HTTP_201_CREATED)
 def create_job(
     job_in: JobCreate,
@@ -80,22 +94,8 @@ def create_job(
             detail=f"Active jobs limit ({membership.organization.active_jobs_limit}) reached for your {membership.organization.plan} plan."
         )
 
-    # Deduplicate skills case-insensitively
-    def dedup(items):
-        if not items:
-            return []
-        seen = set()
-        res = []
-        for x in items:
-            if isinstance(x, str):
-                c = x.strip()
-                if c and c.lower() not in seen:
-                    seen.add(c.lower())
-                    res.append(c)
-        return res
-
-    req_skills = dedup(job_in.required_skills)
-    pref_skills = dedup(job_in.preferred_skills)
+    req_skills = dedup_skills(job_in.required_skills)
+    pref_skills = dedup_skills(job_in.preferred_skills)
     loc = job_in.location or getattr(job_in, 'location_scope', None) or "Remote / Hybrid"
     sal = job_in.salary_range or getattr(job_in, 'compensation_range', None) or "$90,000 - $130,000"
     stat = (job_in.status or "published").strip().lower()

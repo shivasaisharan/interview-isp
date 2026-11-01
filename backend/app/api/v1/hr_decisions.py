@@ -239,6 +239,21 @@ def get_hr_application_resume(
         }
     }
 
+def is_file_valid_pdf(p: Optional[Path]) -> bool:
+    """Checks whether a file path exists and contains a valid PDF header and structural markers."""
+    if not p or not p.exists() or p.stat().st_size < 300:
+        return False
+    try:
+        with open(p, "rb") as f:
+            head = f.read(5)
+            if not head.startswith(b"%PDF-"):
+                return False
+            f.seek(-1024, 2) if p.stat().st_size > 1024 else f.seek(0)
+            tail = f.read()
+            return b"%%EOF" in tail or b"/Page" in tail
+    except Exception:
+        return False
+
 @hr_base_router.get("/applications/{application_id}/resume/file")
 def stream_hr_application_resume_file(
     application_id: str,
@@ -299,20 +314,6 @@ def stream_hr_application_resume_file(
         file_path = settings.UPLOAD_DIR / file_path
     if file_path and not file_path.exists():
         file_path = settings.UPLOAD_DIR / Path(resume.file_path).name
-
-    def is_file_valid_pdf(p: Optional[Path]) -> bool:
-        if not p or not p.exists() or p.stat().st_size < 300:
-            return False
-        try:
-            with open(p, "rb") as f:
-                head = f.read(5)
-                if not head.startswith(b"%PDF-"):
-                    return False
-                f.seek(-1024, 2) if p.stat().st_size > 1024 else f.seek(0)
-                tail = f.read()
-                return b"%%EOF" in tail or b"/Page" in tail
-        except Exception:
-            return False
 
     # Check if local file is missing, empty, or corrupted
     if not is_file_valid_pdf(file_path):

@@ -1,5 +1,6 @@
 import os
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.models.models import (
     User, Organization, OrganizationMembership, CandidateProfile, Job,
     ResumeFile, Application, ApplicationStatusHistory, InterviewSession,
