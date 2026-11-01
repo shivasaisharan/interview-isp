@@ -219,6 +219,10 @@ class InterviewSession(Base):
     answers = relationship("InterviewAnswer", back_populates="session", cascade="all, delete-orphan")
     report = relationship("InterviewReport", back_populates="session", uselist=False, cascade="all, delete-orphan")
     violations = relationship("InterviewViolation", back_populates="session", cascade="all, delete-orphan", order_by="InterviewViolation.occurred_at")
+    recordings = relationship("InterviewRecording", back_populates="session", cascade="all, delete-orphan", order_by="InterviewRecording.created_at")
+    proctoring_events = relationship("InterviewProctoringEvent", back_populates="session", cascade="all, delete-orphan", order_by="InterviewProctoringEvent.occurred_at")
+    consent = relationship("InterviewPermissionConsent", back_populates="session", uselist=False, cascade="all, delete-orphan")
+    metadata_record = relationship("InterviewSessionMetadata", back_populates="session", uselist=False, cascade="all, delete-orphan")
 
 
 class InterviewViolation(Base):
@@ -234,6 +238,97 @@ class InterviewViolation(Base):
     occurred_at = Column(DateTime, default=utc_now, nullable=False)
 
     session = relationship("InterviewSession", back_populates="violations")
+
+
+class InterviewRecording(Base):
+    __tablename__ = "interview_recordings"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    session_id = Column(String(36), ForeignKey("interview_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    storage_path = Column(Text, nullable=False)
+    file_name = Column(String(255), nullable=False)
+    file_size_bytes = Column(Integer, default=0, nullable=False)
+    duration_seconds = Column(Float, default=0.0, nullable=False)
+    mime_type = Column(String(50), default="video/webm", nullable=False)
+    status = Column(String(30), default="recording", nullable=False)  # recording, processing, ready, failed
+    recording_type = Column(String(50), default="composite_screen_camera", nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+
+    session = relationship("InterviewSession", back_populates="recordings")
+    candidate = relationship("User")
+    chunks = relationship("InterviewRecordingChunk", back_populates="recording", cascade="all, delete-orphan", order_by="InterviewRecordingChunk.chunk_index")
+
+
+class InterviewRecordingChunk(Base):
+    __tablename__ = "interview_recording_chunks"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    recording_id = Column(String(36), ForeignKey("interview_recordings.id", ondelete="CASCADE"), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    storage_path = Column(Text, nullable=False)
+    file_size_bytes = Column(Integer, default=0, nullable=False)
+    duration_seconds = Column(Float, default=0.0, nullable=False)
+    uploaded_at = Column(DateTime, default=utc_now, nullable=False)
+
+    recording = relationship("InterviewRecording", back_populates="chunks")
+
+
+class InterviewProctoringEvent(Base):
+    __tablename__ = "interview_proctoring_events"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    session_id = Column(String(36), ForeignKey("interview_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    candidate_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    event_type = Column(String(50), nullable=False, index=True)
+    severity = Column(String(20), default="info", nullable=False)  # info, low, medium, high, critical
+    is_security_violation = Column(Boolean, default=False, nullable=False)
+    description = Column(Text, nullable=False)
+    timestamp_offset_seconds = Column(Float, default=0.0, nullable=False)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+    occurred_at = Column(DateTime, default=utc_now, nullable=False)
+
+    session = relationship("InterviewSession", back_populates="proctoring_events")
+    candidate = relationship("User")
+
+
+class InterviewPermissionConsent(Base):
+    __tablename__ = "interview_permission_consents"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    session_id = Column(String(36), ForeignKey("interview_sessions.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    candidate_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    webcam_granted = Column(Boolean, default=False, nullable=False)
+    microphone_granted = Column(Boolean, default=False, nullable=False)
+    screen_share_granted = Column(Boolean, default=False, nullable=False)
+    recording_consent_agreed = Column(Boolean, default=False, nullable=False)
+    fullscreen_consent_agreed = Column(Boolean, default=False, nullable=False)
+    browser_info = Column(JSON, default=dict, nullable=False)
+    consented_at = Column(DateTime, default=utc_now, nullable=False)
+
+    session = relationship("InterviewSession", back_populates="consent")
+    candidate = relationship("User")
+
+
+class InterviewSessionMetadata(Base):
+    __tablename__ = "interview_session_metadata"
+
+    id = Column(String(36), primary_key=True, default=gen_uuid)
+    session_id = Column(String(36), ForeignKey("interview_sessions.id", ondelete="CASCADE"), unique=True, nullable=False, index=True)
+    reviewer_id = Column(String(36), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    proctoring_verdict = Column(String(50), default="pending", nullable=False)  # pending, cleared, suspicious, flagged_violation
+    reviewer_notes = Column(Text, default="", nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    total_recording_duration_seconds = Column(Float, default=0.0, nullable=False)
+    total_disconnections = Column(Integer, default=0, nullable=False)
+    total_fullscreen_exits = Column(Integer, default=0, nullable=False)
+    metadata_json = Column(JSON, default=dict, nullable=False)
+    created_at = Column(DateTime, default=utc_now, nullable=False)
+    updated_at = Column(DateTime, default=utc_now, onupdate=utc_now, nullable=False)
+
+    session = relationship("InterviewSession", back_populates="metadata_record")
+    reviewer = relationship("User", foreign_keys=[reviewer_id])
 
 
 class InterviewQuestion(Base):

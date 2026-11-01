@@ -280,6 +280,90 @@ class InterviewSecurityStatus(BaseModel):
     violations: List[InterviewViolationOut] = []
     model_config = ConfigDict(from_attributes=True)
 
+class InterviewConsentSubmit(BaseModel):
+    webcam_granted: bool = True
+    microphone_granted: bool = True
+    screen_share_granted: bool = True
+    recording_consent_agreed: bool = True
+    fullscreen_consent_agreed: bool = True
+    browser_info: Optional[Dict[str, Any]] = None
+
+class InterviewConsentOut(BaseModel):
+    id: str
+    session_id: str
+    candidate_id: str
+    webcam_granted: bool
+    microphone_granted: bool
+    screen_share_granted: bool
+    recording_consent_agreed: bool
+    fullscreen_consent_agreed: bool
+    browser_info: Dict[str, Any] = {}
+    consented_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class InterviewProctoringEventCreate(BaseModel):
+    event_type: str
+    severity: Optional[str] = "info"  # info, low, medium, high, critical
+    is_security_violation: Optional[bool] = False
+    description: str
+    timestamp_offset_seconds: Optional[float] = 0.0
+    metadata: Optional[Dict[str, Any]] = None
+
+class InterviewProctoringEventOut(BaseModel):
+    id: str
+    session_id: str
+    candidate_id: str
+    event_type: str
+    severity: str
+    is_security_violation: bool
+    description: str
+    timestamp_offset_seconds: float
+    metadata_json: Dict[str, Any] = {}
+    occurred_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+class InterviewRecordingOut(BaseModel):
+    id: str
+    session_id: str
+    candidate_id: str
+    file_name: str
+    file_size_bytes: int
+    duration_seconds: float
+    mime_type: str
+    status: str
+    recording_type: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    playback_url: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+class InterviewProctoringReviewOut(BaseModel):
+    session_id: str
+    candidate_id: str
+    candidate_name: Optional[str] = None
+    candidate_email: Optional[str] = None
+    job_title: Optional[str] = None
+    status: str
+    started_at: datetime
+    completed_at: Optional[datetime] = None
+    duration_minutes: int
+    total_violations: int
+    flagged_for_review: bool
+    termination_reason: Optional[str] = None
+    proctoring_verdict: str = "pending"
+    reviewer_notes: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    reviewer_name: Optional[str] = None
+    consent: Optional[InterviewConsentOut] = None
+    recordings: List[InterviewRecordingOut] = []
+    events: List[InterviewProctoringEventOut] = []
+    violations: List[InterviewViolationOut] = []
+    summary: Dict[str, Any] = {}
+
+class InterviewProctoringVerdictSubmit(BaseModel):
+    verdict: str  # cleared, suspicious, flagged_violation
+    reviewer_notes: Optional[str] = ""
+
 # --- Report Schemas ---
 class InterviewReportOut(BaseModel):
     id: str

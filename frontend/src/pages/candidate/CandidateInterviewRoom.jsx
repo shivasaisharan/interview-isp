@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
   Mic, MicOff, Volume2, Bot, Clock, ArrowRight, Loader2,
   Shield, ShieldAlert, ShieldCheck, AlertTriangle, Maximize2, Minimize2,
-  XCircle, Lock, Info, ExternalLink
+  XCircle, Lock, Info, ExternalLink, Camera, CameraOff, Monitor, MonitorOff,
+  Video, VideoOff, CheckSquare, Square, RefreshCw, Radio
 } from 'lucide-react';
 import api from '../../services/api';
 
@@ -25,19 +26,60 @@ export default function CandidateInterviewRoom() {
   const [loading, setLoading] = useState(true);
 
   // =========================================================================
+  // HARDWARE VERIFICATION & PRE-INTERVIEW INSTRUCTIONS STATE
+  // =========================================================================
+  const [cameraVerified, setCameraVerified] = useState(false);
+  const [micVerified, setMicVerified] = useState(false);
+  const [screenVerified, setScreenVerified] = useState(false);
+  const [consentAgreed, setConsentAgreed] = useState(false);
+
+  const [checkingCamera, setCheckingCamera] = useState(false);
+  const [checkingMic, setCheckingMic] = useState(false);
+  const [checkingScreen, setCheckingScreen] = useState(false);
+
+  const [cameraError, setCameraError] = useState('');
+  const [micError, setMicError] = useState('');
+  const [screenError, setScreenError] = useState('');
+  const [audioLevel, setAudioLevel] = useState(0);
+
+  // Media Stream Refs
+  const webcamStreamRef = useRef(null);
+  const screenStreamRef = useRef(null);
+  const micStreamRef = useRef(null);
+
+  // Video Element Refs
+  const previewWebcamVideoRef = useRef(null);
+  const previewScreenVideoRef = useRef(null);
+  const activeWebcamVideoRef = useRef(null);
+
+  // Audio Context for Level Testing
+  const audioContextRef = useRef(null);
+  const analyserRef = useRef(null);
+  const animFrameRef = useRef(null);
+
+  // Video Recording Engine Refs
+  const videoRecorderRef = useRef(null);
+  const recordingChunkIndexRef = useRef(0);
+  const recordingStartTimeRef = useRef(null);
+  const isFinishedRef = useRef(false);
+
+  // Screen Disconnection Alert Modal
+  const [screenDisconnected, setScreenDisconnected] = useState(false);
+  const [reconnectingScreen, setReconnectingScreen] = useState(false);
+
+  // =========================================================================
   // SECURE FULL-SCREEN INTERVIEW & THREE-STRIKE STATE
   // =========================================================================
   const [hasStartedSecureMode, setHasStartedSecureMode] = useState(false);
-  const [micGranted, setMicGranted] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [violationCount, setViolationCount] = useState(0);
   const [maxViolations] = useState(3);
   const [isTerminated, setIsTerminated] = useState(false);
   const [terminationReason, setTerminationReason] = useState('');
-  const [activeWarning, setActiveWarning] = useState(null); // { violationNumber, title, message }
+  const [activeWarning, setActiveWarning] = useState(null); // { level, title, message }
   const [fullscreenError, setFullscreenError] = useState('');
 
-  // Audio & Speech Refs
+  // Audio & Speech Refs for Answers
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recognitionRef = useRef(null);
@@ -54,6 +96,25 @@ export default function CandidateInterviewRoom() {
   isTerminatedRef.current = isTerminated;
   hasStartedSecureModeRef.current = hasStartedSecureMode;
   violationCountRef.current = violationCount;
+
+  // Helper to log proctoring events to backend
+  const logProctoringEvent = useCallback(async (eventType, severity, description, isViolation = false, metadata = {}) => {
+    try {
+      const offsetSeconds = recordingStartTimeRef.current
+        ? (Date.now() - recordingStartTimeRef.current) / 1000
+        : 0;
+      await api.post(`/interviews/${sessionId}/proctoring-events`, {
+        event_type: eventType,
+        severity: severity,
+        is_security_violation: isViolation,
+        description: description,
+        timestamp_offset_seconds: offsetSeconds,
+        metadata: metadata
+      });
+    } catch (e) {
+      console.warn("Could not log proctoring event:", e);
+    }
+  }, [sessionId]);
 
   // Load session & live security status
   const fetchSession = async () => {
@@ -77,7 +138,6 @@ export default function CandidateInterviewRoom() {
         return;
       }
 
-      // Fetch server security status to recover state on refresh
       try {
         const secRes = await api.get(`/interviews/${sessionId}/security-status`);
         setViolationCount(secRes.data.violation_count);
@@ -102,7 +162,6 @@ export default function CandidateInterviewRoom() {
   useEffect(() => {
     fetchSession();
 
-    // Timer countdown
     const timer = setInterval(() => {
       setTimeLeft(prev => Math.max(0, prev - 1));
     }, 1000);
@@ -110,26 +169,260 @@ export default function CandidateInterviewRoom() {
     return () => {
       clearInterval(timer);
       if (window.speechSynthesis) window.speechSynthesis.cancel();
+      // Cleanup streams on unmount
+      if (webcamStreamRef.current) webcamStreamRef.current.getTracks().forEach(t => t.stop());
+      if (screenStreamRef.current) screenStreamRef.current.getTracks().forEach(t => t.stop());
+      if (micStreamRef.current) micStreamRef.current.getTracks().forEach(t => t.stop());
+      if (audioContextRef.current) {
+        try { audioContextRef.current.close(); } catch (e) {}
+      }
+      if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
     };
   }, [sessionId]);
 
-  // Request Microphone Check on Consent Screen
-  const handleCheckMicrophone = async () => {
+  // Attach webcam preview when stream ready
+  useEffect(() => {
+    if (previewWebcamVideoRef.current && webcamStreamRef.current) {
+      previewWebcamVideoRef.current.srcObject = webcamStreamRef.current;
+    }
+  }, [cameraVerified]);
+
+  // Attach active room PiP webcam when started
+  useEffect(() => {
+    if (hasStartedSecureMode && activeWebcamVideoRef.current && webcamStreamRef.current) {
+      activeWebcamVideoRef.current.srcObject = webcamStreamRef.current;
+    }
+  }, [hasStartedSecureMode]);
+
+  // Attach screen preview when ready
+  useEffect(() => {
+    if (previewScreenVideoRef.current && screenStreamRef.current) {
+      previewScreenVideoRef.current.srcObject = screenStreamRef.current;
+    }
+  }, [screenVerified]);
+
+  // =========================================================================
+  // 1. WEBCAM PERMISSION & POSITIONING VERIFICATION
+  // =========================================================================
+  const handleVerifyWebcam = async () => {
+    setCheckingCamera(true);
+    setCameraError('');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach(t => t.stop());
-      setMicGranted(true);
-      setFullscreenError('');
+      if (webcamStreamRef.current) {
+        webcamStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }
+      });
+      webcamStreamRef.current = stream;
+
+      // Listen for camera disconnect
+      stream.getVideoTracks()[0].addEventListener('ended', () => {
+        setCameraVerified(false);
+        setCameraError('Camera stream disconnected. Please reconnect camera.');
+        logProctoringEvent('webcam_disconnected', 'high', 'Candidate webcam stream was disconnected or unmounted.', true);
+      });
+
+      setCameraVerified(true);
+      if (previewWebcamVideoRef.current) {
+        previewWebcamVideoRef.current.srcObject = stream;
+      }
     } catch (err) {
-      setFullscreenError('Microphone permission is required to conduct the interview. Please allow mic access in your browser settings.');
+      console.error("Camera verification error:", err);
+      setCameraError('Webcam access was denied or device not found. Please allow camera permissions in your browser.');
+      setCameraVerified(false);
+    } finally {
+      setCheckingCamera(false);
     }
   };
 
-  // Enter Full-Screen Mode and Start Secure Session
+  // =========================================================================
+  // 2. MICROPHONE PERMISSION & AUDIO LEVEL METER
+  // =========================================================================
+  const handleVerifyMicrophone = async () => {
+    setCheckingMic(true);
+    setMicError('');
+    try {
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      micStreamRef.current = stream;
+
+      // Create audio visualizer analyser
+      try {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        const audioCtx = new AudioContext();
+        audioContextRef.current = audioCtx;
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 64;
+        analyserRef.current = analyser;
+        const source = audioCtx.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        const updateLevel = () => {
+          analyser.getByteFrequencyData(dataArray);
+          let sum = 0;
+          for (let i = 0; i < dataArray.length; i++) {
+            sum += dataArray[i];
+          }
+          const avg = sum / dataArray.length;
+          setAudioLevel(Math.min(100, Math.round((avg / 128) * 100)));
+          animFrameRef.current = requestAnimationFrame(updateLevel);
+        };
+        updateLevel();
+      } catch (audioErr) {
+        console.warn("Audio meter init notice:", audioErr);
+      }
+
+      setMicVerified(true);
+    } catch (err) {
+      console.error("Mic verification error:", err);
+      setMicError('Microphone permission was denied. Please allow microphone access in your browser.');
+      setMicVerified(false);
+    } finally {
+      setCheckingMic(false);
+    }
+  };
+
+  // =========================================================================
+  // 3. SCREEN SHARING PERMISSION & INTERRUPTION LISTENER
+  // =========================================================================
+  const handleVerifyScreenShare = async () => {
+    setCheckingScreen(true);
+    setScreenError('');
+    try {
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getTracks().forEach(t => t.stop());
+      }
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'monitor' },
+        audio: false
+      });
+      screenStreamRef.current = stream;
+
+      const track = stream.getVideoTracks()[0];
+      // Listen for when candidate stops sharing via the browser floating bar
+      track.addEventListener('ended', handleScreenShareStopped);
+
+      setScreenVerified(true);
+      if (previewScreenVideoRef.current) {
+        previewScreenVideoRef.current.srcObject = stream;
+      }
+    } catch (err) {
+      console.error("Screen share error:", err);
+      setScreenError('Screen sharing was cancelled or denied. Full display sharing is required for proctoring compliance.');
+      setScreenVerified(false);
+    } finally {
+      setCheckingScreen(false);
+    }
+  };
+
+  // Handler for when candidate stops sharing their screen
+  const handleScreenShareStopped = () => {
+    setScreenVerified(false);
+    setScreenDisconnected(true);
+    logProctoringEvent('screen_share_stopped', 'critical', 'Candidate stopped screen sharing track.', true);
+    triggerViolation('screen_share_stopped', 'Candidate interrupted full-screen display sharing.');
+  };
+
+  // Reconnect Screen Share from Dialog
+  const handleReconnectScreenShare = async () => {
+    setReconnectingScreen(true);
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'monitor' },
+        audio: false
+      });
+      screenStreamRef.current = stream;
+      stream.getVideoTracks()[0].addEventListener('ended', handleScreenShareStopped);
+      setScreenVerified(true);
+      setScreenDisconnected(false);
+      logProctoringEvent('screen_share_resumed', 'info', 'Candidate reconnected screen sharing successfully.');
+    } catch (err) {
+      console.error("Reconnect screen share failed:", err);
+    } finally {
+      setReconnectingScreen(false);
+    }
+  };
+
+  // =========================================================================
+  // 4. START SECURE INTERVIEW & CHUNKED VIDEO RECORDING ENGINE
+  // =========================================================================
+  const startChunkedVideoRecording = () => {
+    try {
+      // Build combined media stream (Screen Video + Mic Audio)
+      const combinedStream = new MediaStream();
+      if (screenStreamRef.current) {
+        screenStreamRef.current.getVideoTracks().forEach(t => combinedStream.addTrack(t));
+      } else if (webcamStreamRef.current) {
+        webcamStreamRef.current.getVideoTracks().forEach(t => combinedStream.addTrack(t));
+      }
+      if (micStreamRef.current) {
+        micStreamRef.current.getAudioTracks().forEach(t => combinedStream.addTrack(t));
+      }
+
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : (MediaRecorder.isTypeSupported('video/webm') ? 'video/webm' : '');
+
+      const recorder = new MediaRecorder(combinedStream, mimeType ? { mimeType } : undefined);
+      recordingChunkIndexRef.current = 0;
+      recordingStartTimeRef.current = Date.now();
+
+      recorder.ondataavailable = async (e) => {
+        if (e.data && e.data.size > 0) {
+          const chunkIdx = recordingChunkIndexRef.current++;
+          const formData = new FormData();
+          formData.append('file', e.data, `chunk_${chunkIdx}.webm`);
+          formData.append('chunk_index', chunkIdx);
+          formData.append('duration_seconds', 10.0);
+          formData.append('is_final', isFinishedRef.current ? 'true' : 'false');
+
+          try {
+            await api.post(`/interviews/${sessionId}/recordings/chunks`, formData, {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            });
+          } catch (uploadErr) {
+            console.warn("Chunk upload warning:", uploadErr);
+          }
+        }
+      };
+
+      recorder.start(10000); // 10s chunk slices
+      videoRecorderRef.current = recorder;
+    } catch (err) {
+      console.error("Video recording engine initialization error:", err);
+    }
+  };
+
   const handleEnterSecureInterview = async () => {
     setFullscreenError('');
-    if (!micGranted) {
-      await handleCheckMicrophone();
+
+    // Pre-flight validation
+    if (!cameraVerified || !micVerified || !screenVerified || !consentAgreed) {
+      alert("Please satisfy all pre-flight verifications (Webcam, Microphone, Screen Sharing, and Consent) before entering.");
+      return;
+    }
+
+    // Submit consent record
+    try {
+      await api.post(`/interviews/${sessionId}/consent`, {
+        webcam_granted: true,
+        microphone_granted: true,
+        screen_share_granted: true,
+        recording_consent_agreed: true,
+        fullscreen_consent_agreed: true,
+        browser_info: {
+          userAgent: navigator.userAgent,
+          platform: navigator.platform,
+          screenWidth: window.screen.width,
+          screenHeight: window.screen.height
+        }
+      });
+    } catch (consentErr) {
+      console.warn("Consent recording notice:", consentErr);
     }
 
     try {
@@ -149,7 +442,12 @@ export default function CandidateInterviewRoom() {
       isInterruptedRef.current = false;
       currentIncidentIdRef.current = null;
 
-      // Play introductory question audio once entered
+      // Launch progressive video recording engine
+      startChunkedVideoRecording();
+
+      // Log proctoring start event
+      logProctoringEvent('interview_started', 'info', 'Candidate entered full-screen examination mode and activated recording pipeline.');
+
       if (currentQuestion) {
         speakText(currentQuestion.question_text);
       }
@@ -167,23 +465,19 @@ export default function CandidateInterviewRoom() {
   const triggerViolation = useCallback(async (type, description) => {
     if (!hasStartedSecureModeRef.current || isTerminatedRef.current) return;
 
-    // Incident-based deduplication: If already in an active interruption, ignore tandem signals
     if (isInterruptedRef.current) {
       return;
     }
 
-    // Immediately mark as interrupted and exit fullscreen tracking
     isInterruptedRef.current = true;
     isFullscreenRef.current = false;
     setIsFullscreen(false);
 
-    // Generate unique incident ID for exact request idempotency
     const incidentId = typeof crypto !== 'undefined' && crypto.randomUUID
       ? crypto.randomUUID()
       : `inc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     currentIncidentIdRef.current = incidentId;
 
-    // IMMEDIATE ZERO-DELAY OPTIMISTIC UI UPDATE
     const nextCount = Math.min(3, violationCountRef.current + 1);
     violationCountRef.current = nextCount;
     setViolationCount(nextCount);
@@ -199,18 +493,21 @@ export default function CandidateInterviewRoom() {
       });
       if (isListening) stopRecording();
       if (window.speechSynthesis) window.speechSynthesis.cancel();
+      logProctoringEvent('interview_terminated', 'critical', 'Session terminated after reaching 3 strikes.', true);
     } else if (nextCount === 1) {
       setActiveWarning({
         level: 1,
         title: "Interview Security Warning (1 of 3)",
         message: "You have exited the secure interview environment or switched windows. This activity has been recorded. You have 2 remaining chances before termination."
       });
+      logProctoringEvent('strike_1_logged', 'high', description, true);
     } else if (nextCount === 2) {
       setActiveWarning({
         level: 2,
         title: "Final Interview Warning (2 of 3)",
         message: "This is your second security violation. One more confirmed interruption will immediately terminate your interview and flag it for HR review."
       });
+      logProctoringEvent('strike_2_logged', 'critical', description, true);
     }
 
     try {
@@ -242,13 +539,12 @@ export default function CandidateInterviewRoom() {
     } catch (err) {
       console.error("Violation sync error:", err);
     }
-  }, [sessionId, isListening]);
+  }, [sessionId, isListening, logProctoringEvent]);
 
   // Browser Event Listeners
   useEffect(() => {
     if (!hasStartedSecureMode || isTerminated) return;
 
-    // A. Fullscreen Exit
     const handleFullscreenChange = () => {
       const isCurrentlyFs = !!(
         document.fullscreenElement ||
@@ -262,34 +558,29 @@ export default function CandidateInterviewRoom() {
       if (!isCurrentlyFs && !isTerminatedRef.current) {
         triggerViolation("fullscreen_exit", "Candidate exited browser full-screen mode.");
       } else if (isCurrentlyFs) {
-        // Recovered full-screen state
         isInterruptedRef.current = false;
         currentIncidentIdRef.current = null;
       }
     };
 
-    // B. Tab Switching / Document Visibility
     const handleVisibilityChange = () => {
       if (document.hidden && !isTerminatedRef.current) {
         triggerViolation("tab_switched", "Candidate switched tabs or minimized the interview window.");
       }
     };
 
-    // C. Window Blur (Focus Lost)
     const handleWindowBlur = () => {
       if (!isTerminatedRef.current && isFullscreenRef.current) {
         triggerViolation("focus_lost", "Interview window lost focus.");
       }
     };
 
-    // D. Immediate Escape Key Handler
     const handleKeyDown = (e) => {
       if ((e.key === 'Escape' || e.key === 'Esc') && isFullscreenRef.current && !isTerminatedRef.current) {
         triggerViolation("fullscreen_exit", "Candidate pressed Escape to exit full-screen mode.");
       }
     };
 
-    // E. Prevent Accidental Page Refresh / Exit
     const handleBeforeUnload = (e) => {
       e.preventDefault();
       e.returnValue = "Leaving this page may register an interview violation. Are you sure?";
@@ -317,7 +608,6 @@ export default function CandidateInterviewRoom() {
     };
   }, [hasStartedSecureMode, isTerminated, triggerViolation]);
 
-  // Re-engage Full-Screen and Dismiss Non-Fatal Warnings
   const handleReturnToInterview = async () => {
     try {
       const elem = document.documentElement;
@@ -351,13 +641,12 @@ export default function CandidateInterviewRoom() {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Enterprise Dual Speech-to-Text Pipeline (Faster-Whisper)
+  // Enterprise Speech-to-Text Pipeline (Faster-Whisper)
   const startRecording = async () => {
     if (isTerminated) return;
     setSttError('');
     liveTranscriptRef.current = '';
 
-    // Live Streaming Speech for instant visual feedback
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SpeechRecognition) {
       try {
@@ -382,7 +671,6 @@ export default function CandidateInterviewRoom() {
       } catch (e) {}
     }
 
-    // MediaRecorder Raw Audio Buffer for Faster-Whisper
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
@@ -480,6 +768,17 @@ export default function CandidateInterviewRoom() {
       if (isListening) stopRecording();
 
       if (res.data.is_finished) {
+        isFinishedRef.current = true;
+        // Finalize video recording
+        if (videoRecorderRef.current && videoRecorderRef.current.state !== 'inactive') {
+          try { videoRecorderRef.current.stop(); } catch (e) {}
+        }
+        try {
+          await api.post(`/interviews/${sessionId}/recordings/finalize`);
+        } catch (finErr) {
+          console.warn("Recording finalize notice:", finErr);
+        }
+
         const finalRes = await api.post(`/interviews/${sessionId}/complete`);
         navigate(`/candidate/results/${finalRes.data.report_id}`);
       } else {
@@ -514,101 +813,288 @@ export default function CandidateInterviewRoom() {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
   };
 
+  const allChecksPassed = cameraVerified && micVerified && screenVerified && consentAgreed;
+
   // =========================================================================
   // VIEW 1: SECURE INTERVIEW INSTRUCTIONS SCREEN (PRE-ENTRY)
   // =========================================================================
   if (!hasStartedSecureMode && !isTerminated) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-slate-950 to-slate-900 text-slate-100 flex items-center justify-center p-6">
-        <div className="max-w-2xl w-full bg-slate-900/90 border border-slate-800 rounded-3xl p-8 sm:p-10 shadow-2xl backdrop-blur-xl space-y-8">
-          <div className="text-center space-y-3">
-            <div className="inline-flex p-3 rounded-2xl bg-brand-500/10 text-brand-400 border border-brand-500/20 mb-2">
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-4 sm:p-6">
+        <div className="max-w-3xl w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-6">
+          {/* Header */}
+          <div className="text-center space-y-2">
+            <div className="inline-flex p-3 rounded-2xl bg-brand-500/10 text-brand-400 border border-brand-500/20 mb-1">
               <ShieldCheck className="w-8 h-8" />
             </div>
             <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-              Secure Full-Screen Interview Mode
+              Smart<span className="text-brand-400">Recruit</span> Secure Examination Mode
             </h1>
-            <p className="text-sm text-slate-400">
-              Welcome to your official technical interview. Please review the proctoring protocols before entering.
+            <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto">
+              This remote interview incorporates real-time webcam monitoring, entire screen sharing, voice recording, and AI proctoring for compliance integrity.
             </p>
           </div>
 
           {fullscreenError && (
-            <div className="p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl text-rose-300 text-xs flex items-start gap-3">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
               <span>{fullscreenError}</span>
             </div>
           )}
 
-          <div className="space-y-4">
-            <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60 flex items-start gap-3.5">
-              <Maximize2 className="w-5 h-5 text-brand-400 shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-sm font-bold text-white">1. Mandatory Browser Full-Screen Mode</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  The interview operates strictly in full-screen mode to ensure an uninterrupted, focused examination environment.
-                </p>
+          {/* 4 Interactive Pre-Flight Verification Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+            {/* Card 1: Webcam Verification & Live Preview */}
+            <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Camera className="w-4 h-4 text-brand-400" />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">1. Webcam Verification</h3>
+                </div>
+                {cameraVerified ? (
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Ready
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    Required
+                  </span>
+                )}
               </div>
+
+              {/* Webcam Preview Video */}
+              <div className="relative aspect-video rounded-xl bg-black overflow-hidden border border-slate-700 flex items-center justify-center">
+                {cameraVerified ? (
+                  <>
+                    <video
+                      ref={previewWebcamVideoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover -scale-x-100"
+                    />
+                    <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur text-[10px] text-emerald-400 font-mono font-bold flex items-center gap-1">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Cam Live
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-center p-4 space-y-1">
+                    <CameraOff className="w-8 h-8 text-slate-600 mx-auto" />
+                    <p className="text-[11px] text-slate-500">Camera preview not active</p>
+                  </div>
+                )}
+              </div>
+
+              {cameraError && (
+                <p className="text-[11px] text-rose-400">{cameraError}</p>
+              )}
+
+              <button
+                type="button"
+                onClick={handleVerifyWebcam}
+                disabled={checkingCamera}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-slate-700 flex items-center justify-center gap-2"
+              >
+                {checkingCamera ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5 text-brand-400" />}
+                <span>{cameraVerified ? 'Re-test Camera' : 'Allow & Preview Camera'}</span>
+              </button>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60 flex items-start gap-3.5">
-              <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-sm font-bold text-white">2. Three-Strike Security Policy</h2>
-                <p className="text-xs text-slate-400 mt-0.5 leading-relaxed">
-                  Switching tabs, minimizing the browser, or exiting full-screen will log a security alert. Candidates receive exactly <b>three violation chances</b>. On the 3rd strike, the session terminates and flags for human HR review.
+            {/* Card 2: Microphone Verification & Audio Level Meter */}
+            <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-emerald-400" />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">2. Microphone Test</h3>
+                </div>
+                {micVerified ? (
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Ready
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    Required
+                  </span>
+                )}
+              </div>
+
+              {/* Audio Level Visualizer */}
+              <div className="aspect-video rounded-xl bg-slate-950 border border-slate-800 flex flex-col items-center justify-center p-4 space-y-3">
+                <div className="w-12 h-12 rounded-full bg-slate-900 border border-slate-800 flex items-center justify-center">
+                  <Mic className={`w-6 h-6 ${micVerified ? 'text-emerald-400' : 'text-slate-600'}`} />
+                </div>
+                <div className="w-full max-w-[200px] space-y-1">
+                  <div className="flex justify-between text-[10px] text-slate-400">
+                    <span>Input Level</span>
+                    <span className="font-mono">{audioLevel}%</span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all duration-75"
+                      style={{ width: `${audioLevel}%` }}
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-500 text-center">
+                  {micVerified ? 'Speak into your mic to test audio level meter' : 'Microphone access pending verification'}
                 </p>
               </div>
+
+              {micError && (
+                <p className="text-[11px] text-rose-400">{micError}</p>
+              )}
+
+              <button
+                type="button"
+                onClick={handleVerifyMicrophone}
+                disabled={checkingMic}
+                className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-slate-700 flex items-center justify-center gap-2"
+              >
+                {checkingMic ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mic className="w-3.5 h-3.5 text-emerald-400" />}
+                <span>{micVerified ? 'Re-test Microphone' : 'Allow & Test Microphone'}</span>
+              </button>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-800/50 border border-slate-700/60 flex items-start gap-3.5">
-              <Mic className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-              <div>
-                <h2 className="text-sm font-bold text-white">3. Microphone Verification</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  Voice answers are transcribed using Faster-Whisper AI. Ensure your microphone is connected and authorized.
-                </p>
+            {/* Card 3: Entire Screen Sharing Verification */}
+            <div className="p-4 rounded-2xl bg-slate-800/40 border border-slate-700/60 space-y-3 md:col-span-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Monitor className="w-4 h-4 text-indigo-400" />
+                  <h3 className="text-xs font-bold text-white uppercase tracking-wider">3. Screen Sharing Verification</h3>
+                </div>
+                {screenVerified ? (
+                  <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3" /> Entire Screen Active
+                  </span>
+                ) : (
+                  <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-full border border-amber-500/20">
+                    Mandatory
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-300 leading-relaxed">
+                    Select <b>"Entire Screen"</b> in your browser dialog. Proctoring rules prohibit sharing single tabs or application windows.
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    • Detection logs when candidate stops sharing.<br />
+                    • Screen capture runs continuously until interview completion.
+                  </p>
+                  {screenError && (
+                    <p className="text-[11px] text-rose-400">{screenError}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleVerifyScreenShare}
+                    disabled={checkingScreen}
+                    className="w-full py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold border border-slate-700 flex items-center justify-center gap-2"
+                  >
+                    {checkingScreen ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Monitor className="w-3.5 h-3.5 text-indigo-400" />}
+                    <span>{screenVerified ? 'Re-select Screen Share' : 'Select Entire Screen to Share'}</span>
+                  </button>
+                </div>
+
+                {/* Screen Preview */}
+                <div className="aspect-video rounded-xl bg-black border border-slate-700 overflow-hidden flex items-center justify-center relative">
+                  {screenVerified ? (
+                    <>
+                      <video
+                        ref={previewScreenVideoRef}
+                        autoPlay
+                        playsInline
+                        muted
+                        className="w-full h-full object-contain"
+                      />
+                      <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-black/60 backdrop-blur text-[10px] text-indigo-400 font-mono font-bold flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                        Screen Streaming
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-center p-4 space-y-1">
+                      <MonitorOff className="w-8 h-8 text-slate-600 mx-auto" />
+                      <p className="text-[11px] text-slate-500">Screen share preview not active</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="pt-2 flex flex-col sm:flex-row items-center gap-4">
-            {!micGranted ? (
-              <button
-                type="button"
-                onClick={handleCheckMicrophone}
-                className="w-full py-3.5 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-2xl text-sm border border-slate-700 transition-all flex items-center justify-center gap-2"
-              >
-                <Mic className="w-4 h-4 text-brand-400" />
-                <span>Verify Microphone Permission</span>
-              </button>
-            ) : (
-              <div className="w-full py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-2xl text-xs font-bold flex items-center justify-center gap-2">
-                <ShieldCheck className="w-4 h-4" />
-                <span>Microphone Verified & Ready</span>
+          {/* Explicit Recording Consent & Three-Strike Security Notice */}
+          <div className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div className="text-xs text-slate-300 space-y-1">
+                <span className="font-bold text-white block">Three-Strike Security & Integrity Policy</span>
+                <p className="text-slate-400 leading-relaxed text-[11px]">
+                  Exiting full-screen, switching windows, or stopping screen sharing logs a security violation. Candidates receive exactly <b>3 strikes</b>. On the 3rd strike, the session terminates and flags for human HR review.
+                </p>
               </div>
-            )}
+            </div>
+
+            {/* Checkbox Consent */}
+            <label className="flex items-start gap-3 pt-2 cursor-pointer select-none border-t border-slate-800/80">
+              <input
+                type="checkbox"
+                checked={consentAgreed}
+                onChange={(e) => setConsentAgreed(e.target.checked)}
+                className="mt-0.5 w-4 h-4 rounded text-brand-600 bg-slate-900 border-slate-700 focus:ring-brand-500 accent-brand-600 cursor-pointer"
+              />
+              <span className="text-xs text-slate-300 leading-relaxed">
+                I explicitly consent to continuous video, microphone, and entire screen recording during this interview for evaluation and integrity review by Smart Recruit.
+              </span>
+            </label>
+          </div>
+
+          {/* Permission Checklist & Gated Start Button */}
+          <div className="pt-2 space-y-3">
+            <div className="flex flex-wrap items-center justify-between text-xs text-slate-400 px-1">
+              <span>Verification Checklist:</span>
+              <div className="flex items-center gap-3 font-semibold text-[11px]">
+                <span className={cameraVerified ? 'text-emerald-400' : 'text-slate-500'}>
+                  {cameraVerified ? '✓' : '○'} Camera
+                </span>
+                <span className={micVerified ? 'text-emerald-400' : 'text-slate-500'}>
+                  {micVerified ? '✓' : '○'} Mic
+                </span>
+                <span className={screenVerified ? 'text-emerald-400' : 'text-slate-500'}>
+                  {screenVerified ? '✓' : '○'} Screen Share
+                </span>
+                <span className={consentAgreed ? 'text-emerald-400' : 'text-slate-500'}>
+                  {consentAgreed ? '✓' : '○'} Consent
+                </span>
+              </div>
+            </div>
 
             <button
               type="button"
               onClick={handleEnterSecureInterview}
-              className="w-full py-3.5 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-2xl text-sm shadow-lg shadow-brand-500/25 transition-all flex items-center justify-center gap-2"
+              disabled={!allChecksPassed}
+              className={`w-full py-4 font-bold rounded-2xl text-sm transition-all flex items-center justify-center gap-2 shadow-xl ${
+                allChecksPassed
+                  ? 'bg-brand-600 hover:bg-brand-500 text-white shadow-brand-500/25 cursor-pointer'
+                  : 'bg-slate-800 text-slate-500 border border-slate-800 cursor-not-allowed'
+              }`}
             >
               <Maximize2 className="w-4 h-4" />
-              <span>Enter Full-Screen & Start Interview</span>
+              <span>
+                {allChecksPassed
+                  ? 'Enter Full-Screen & Start Interview'
+                  : 'Complete All Verifications to Enable Interview'}
+              </span>
             </button>
           </div>
-
-          <p className="text-[11px] text-center text-slate-500">
-            By entering, you confirm agreement to the examination protocols. Security events are transparently audited for HR review.
-          </p>
         </div>
       </div>
     );
   }
 
   // =========================================================================
-  // VIEW 2: FULL-SCREEN EXAMINATION ROOM
+  // VIEW 2: ACTIVE FULL-SCREEN EXAMINATION ROOM
   // =========================================================================
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between select-none">
@@ -626,8 +1112,17 @@ export default function CandidateInterviewRoom() {
           </div>
         </div>
 
-        {/* Progress & Countdown */}
-        <div className="flex items-center gap-4">
+        {/* Live Status Indicators */}
+        <div className="flex items-center gap-3">
+          {/* Active Screen Share & REC Badges */}
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1 rounded-xl bg-slate-800/80 border border-slate-700/60 text-[11px] font-semibold text-slate-300">
+            <div className="w-2 h-2 rounded-full bg-rose-500 animate-ping" />
+            <span className="text-rose-400 font-bold uppercase tracking-wider text-[10px]">REC</span>
+            <span className="text-slate-600">|</span>
+            <Monitor className="w-3.5 h-3.5 text-indigo-400" />
+            <span>Screen Live</span>
+          </div>
+
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-800 border border-slate-700/60 text-xs font-semibold text-slate-300">
             <Bot className="w-3.5 h-3.5 text-brand-400" />
             <span>Question {(currentQuestion?.question_index ?? 0) + 1} of 5</span>
@@ -638,7 +1133,7 @@ export default function CandidateInterviewRoom() {
             <span>{formatTime(timeLeft)}</span>
           </div>
 
-          {/* Security Status Indicator */}
+          {/* Security Strikes Badge */}
           <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border ${
             violationCount === 0
               ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
@@ -654,7 +1149,7 @@ export default function CandidateInterviewRoom() {
 
       {/* 2. MAIN INTERVIEW EXAMINATION WORKSPACE */}
       <main className="flex-1 max-w-4xl w-full mx-auto p-6 sm:p-8 flex flex-col justify-center space-y-6">
-        {/* Terminal/Flagged Notice if Terminated */}
+        {/* Terminal Notice if Terminated */}
         {isTerminated ? (
           <div className="p-8 rounded-3xl bg-rose-950/40 border border-rose-800/60 text-center space-y-4">
             <div className="inline-flex p-3 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30">
@@ -763,9 +1258,9 @@ export default function CandidateInterviewRoom() {
                 rows={6}
                 value={answerText}
                 onChange={(e) => setAnswerText(e.target.value)}
+                placeholder="Type your structured answer here, or click 'Speak Answer' to speak naturally..."
                 disabled={isTerminated}
-                placeholder="Type or speak your answer in detail. Emphasize architecture trade-offs, code principles, and real production metrics..."
-                className="w-full p-4 rounded-2xl bg-slate-950 border border-slate-800 text-sm text-slate-100 placeholder-slate-500 focus:ring-2 focus:ring-brand-500 focus:outline-none leading-relaxed resize-none"
+                className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-brand-500 transition-colors"
               />
 
               <div className="flex items-center justify-between pt-2">
@@ -800,7 +1295,7 @@ export default function CandidateInterviewRoom() {
       <footer className="h-14 px-6 sm:px-10 bg-slate-900/90 border-t border-slate-800 flex items-center justify-between text-xs text-slate-400">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
-          <span className="font-medium">Continuous Security Monitoring Active</span>
+          <span className="font-medium">Continuous Security & Screen Monitoring Active</span>
         </div>
 
         <div className="flex items-center gap-4">
@@ -809,6 +1304,62 @@ export default function CandidateInterviewRoom() {
           <span className="hidden sm:inline">Human HR Review Enforced</span>
         </div>
       </footer>
+
+      {/* =====================================================================
+          FLOATING PICTURE-IN-PICTURE (PiP) WEBCAM PREVIEW
+      ====================================================================== */}
+      <div className="fixed bottom-20 right-6 z-40 w-44 sm:w-52 aspect-video bg-black rounded-2xl overflow-hidden border-2 border-brand-500/80 shadow-2xl">
+        <video
+          ref={activeWebcamVideoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-full object-cover -scale-x-100"
+        />
+        <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-full bg-black/70 backdrop-blur text-[9px] text-emerald-400 font-bold flex items-center gap-1 border border-emerald-500/30">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span>PROCTORING CAM</span>
+        </div>
+      </div>
+
+      {/* =====================================================================
+          SCREEN SHARE DISCONNECTION RECOVERY MODAL
+      ====================================================================== */}
+      {screenDisconnected && (
+        <div className="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="max-w-md w-full bg-slate-900 border border-amber-500/60 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-5 text-center">
+            <div className="inline-flex p-3 rounded-2xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
+              <MonitorOff className="w-8 h-8" />
+            </div>
+
+            <div className="space-y-1.5">
+              <h2 className="text-lg font-bold text-white">Screen Sharing Interrupted</h2>
+              <p className="text-xs text-slate-300 leading-relaxed">
+                You stopped sharing your display. Proctoring protocols require continuous entire screen sharing. Please reconnect immediately to avoid further security strikes.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleReconnectScreenShare}
+              disabled={reconnectingScreen}
+              className="w-full py-3 bg-brand-600 hover:bg-brand-500 text-white font-bold rounded-xl text-xs shadow-lg shadow-brand-500/25 transition-all flex items-center justify-center gap-2"
+            >
+              {reconnectingScreen ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Requesting Display...</span>
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Reconnect Entire Screen</span>
+                </>
+              )}
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* =====================================================================
           PROFESSIONAL SECURITY WARNING MODAL (STRIKES 1, 2, 3)

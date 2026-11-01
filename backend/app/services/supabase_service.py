@@ -33,6 +33,7 @@ class SupabaseStorageService:
     BUCKET_AUDIO = "interview-audio"
     BUCKET_REPORTS = "assessment-reports"
     BUCKET_ORG_ASSETS = "organization-assets"
+    BUCKET_RECORDINGS = "smartrecruit-interview-recordings"
 
     @classmethod
     def upload_file(cls, bucket: str, path: str, file_bytes: bytes, content_type: str = "application/pdf") -> Optional[str]:

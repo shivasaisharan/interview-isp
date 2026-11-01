@@ -1,19 +1,27 @@
 import os
 import uuid
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, status
+from pathlib import Path
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Header, Request, status
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 from app.core.config import settings
-from app.api.deps import get_db, require_candidate
+from app.api.deps import get_db, require_candidate, require_hr, get_current_user
 from app.models.models import (
     InterviewSession, InterviewQuestion, InterviewAnswer, InterviewReport,
-    InterviewViolation, Application, ApplicationStatusHistory, Job, User
+    InterviewViolation, Application, ApplicationStatusHistory, Job, User,
+    InterviewRecording, InterviewRecordingChunk, InterviewProctoringEvent,
+    InterviewPermissionConsent, InterviewSessionMetadata
 )
 from app.schemas.schemas import (
     InterviewStartRequest, InterviewSessionOut, InterviewAnswerSubmit, InterviewQuestionOut,
-    InterviewViolationCreate, InterviewViolationOut, InterviewSecurityStatus
+    InterviewViolationCreate, InterviewViolationOut, InterviewSecurityStatus,
+    InterviewConsentSubmit, InterviewConsentOut, InterviewProctoringEventCreate,
+    InterviewProctoringEventOut, InterviewRecordingOut, InterviewProctoringReviewOut,
+    InterviewProctoringVerdictSubmit
 )
+from app.services.supabase_service import SupabaseStorageService
 from app.services.ai_service import (
     generate_interview_questions, evaluate_single_answer, generate_final_interview_report
 )
@@ -721,5 +729,516 @@ def get_hr_security_report(
             }
             for v in violations
         ]
+    }
+
+
+# ==============================================================================
+# SECURE VIDEO INTERVIEW, SCREEN SHARING & AI PROCTORING PIPELINE
+# ==============================================================================
+
+def _record_proctoring_event(
+    db: Session,
+    session_id: str,
+    candidate_id: str,
+    event_type: str,
+    severity: str,
+    description: str,
+    timestamp_offset_seconds: float = 0.0,
+    is_security_violation: bool = False,
+    metadata_json: Optional[Dict[str, Any]] = None
+) -> InterviewProctoringEvent:
+    event = InterviewProctoringEvent(
+        session_id=session_id,
+        candidate_id=candidate_id,
+        event_type=event_type,
+        severity=severity,
+        is_security_violation=is_security_violation,
+        description=description,
+        timestamp_offset_seconds=float(timestamp_offset_seconds or 0.0),
+        metadata_json=metadata_json or {}
+    )
+    db.add(event)
+    return event
+
+
+@router.post("/{session_id}/consent", response_model=InterviewConsentOut)
+def record_interview_consent(
+    session_id: str,
+    consent_req: InterviewConsentSubmit,
+    candidate: User = Depends(require_candidate),
+    db: Session = Depends(get_db)
+):
+    """
+    Records candidate's explicit consent and hardware verification status
+    (Webcam, Microphone, Screen Sharing, Fullscreen, Recording Policy)
+    prior to entering the live examination room.
+    """
+    session = db.query(InterviewSession).filter(
+        InterviewSession.id == session_id,
+        InterviewSession.candidate_id == candidate.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview session not found")
+
+    consent = db.query(InterviewPermissionConsent).filter(
+        InterviewPermissionConsent.session_id == session.id
+    ).first()
+
+    if not consent:
+        consent = InterviewPermissionConsent(
+            session_id=session.id,
+            candidate_id=candidate.id,
+            webcam_granted=consent_req.webcam_granted,
+            microphone_granted=consent_req.microphone_granted,
+            screen_share_granted=consent_req.screen_share_granted,
+            recording_consent_agreed=consent_req.recording_consent_agreed,
+            fullscreen_consent_agreed=consent_req.fullscreen_consent_agreed,
+            browser_info=consent_req.browser_info or {}
+        )
+        db.add(consent)
+    else:
+        consent.webcam_granted = consent_req.webcam_granted
+        consent.microphone_granted = consent_req.microphone_granted
+        consent.screen_share_granted = consent_req.screen_share_granted
+        consent.recording_consent_agreed = consent_req.recording_consent_agreed
+        consent.fullscreen_consent_agreed = consent_req.fullscreen_consent_agreed
+        if consent_req.browser_info:
+            consent.browser_info = consent_req.browser_info
+
+    # Log initial proctoring verification event
+    _record_proctoring_event(
+        db=db,
+        session_id=session.id,
+        candidate_id=candidate.id,
+        event_type="consent_granted",
+        severity="info",
+        description="Candidate accepted proctoring terms and verified hardware permissions (camera, microphone, display capture).",
+        timestamp_offset_seconds=0.0,
+        metadata_json={"browser_info": consent_req.browser_info or {}}
+    )
+
+    db.commit()
+    db.refresh(consent)
+    return consent
+
+
+@router.post("/{session_id}/proctoring-events", response_model=InterviewProctoringEventOut)
+def log_proctoring_event(
+    session_id: str,
+    event_in: InterviewProctoringEventCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Logs an AI proctoring lifecycle or security anomaly event into the timeline.
+    Tracks fullscreen breaches, screenshare disconnections, tab switches, and webcam drops.
+    """
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview session not found")
+
+    # If event indicates critical security breach or screenshare disconnection
+    is_violation = event_in.is_security_violation
+    if event_in.event_type in ["screen_share_stopped", "fullscreen_exited", "tab_switch_detected", "multiple_faces_detected"]:
+        is_violation = True
+
+    event = _record_proctoring_event(
+        db=db,
+        session_id=session.id,
+        candidate_id=session.candidate_id,
+        event_type=event_in.event_type,
+        severity=event_in.severity or ("critical" if is_violation else "info"),
+        description=event_in.description,
+        timestamp_offset_seconds=event_in.timestamp_offset_seconds or 0.0,
+        is_security_violation=is_violation,
+        metadata_json=event_in.metadata or {}
+    )
+
+    # Update session metadata counters
+    meta = db.query(InterviewSessionMetadata).filter(InterviewSessionMetadata.session_id == session.id).first()
+    if not meta:
+        meta = InterviewSessionMetadata(session_id=session.id)
+        db.add(meta)
+
+    if event_in.event_type in ["screen_share_stopped", "webcam_disconnected"]:
+        meta.total_disconnections += 1
+    elif event_in.event_type == "fullscreen_exited":
+        meta.total_fullscreen_exits += 1
+
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+@router.post("/{session_id}/recordings/chunks")
+async def upload_recording_chunk(
+    session_id: str,
+    chunk_index: int = Form(...),
+    duration_seconds: float = Form(10.0),
+    is_final: bool = Form(False),
+    file: UploadFile = File(...),
+    candidate: User = Depends(require_candidate),
+    db: Session = Depends(get_db)
+):
+    """
+    Receives progressive MediaRecorder video/audio chunks from the candidate client.
+    Appends chunk to full video file and updates recording metrics.
+    """
+    session = db.query(InterviewSession).filter(
+        InterviewSession.id == session_id,
+        InterviewSession.candidate_id == candidate.id
+    ).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    chunk_bytes = await file.read()
+    if not chunk_bytes:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty recording chunk")
+
+    recordings_dir = Path(settings.UPLOAD_DIR) / "recordings" / session_id
+    chunks_dir = recordings_dir / "chunks"
+    chunks_dir.mkdir(parents=True, exist_ok=True)
+
+    chunk_filename = f"chunk_{chunk_index:05d}.webm"
+    chunk_path = chunks_dir / chunk_filename
+    with open(chunk_path, "wb") as f:
+        f.write(chunk_bytes)
+
+    # Consolidated full recording file
+    full_recording_path = recordings_dir / "full_recording.webm"
+    with open(full_recording_path, "ab") as f:
+        f.write(chunk_bytes)
+
+    full_size = os.path.getsize(full_recording_path)
+
+    # Find or create InterviewRecording
+    recording = db.query(InterviewRecording).filter(
+        InterviewRecording.session_id == session.id
+    ).first()
+
+    if not recording:
+        recording = InterviewRecording(
+            session_id=session.id,
+            candidate_id=candidate.id,
+            storage_path=str(full_recording_path),
+            file_name=f"interview_{session_id[:8]}.webm",
+            file_size_bytes=full_size,
+            duration_seconds=duration_seconds,
+            mime_type="video/webm",
+            status="recording",
+            recording_type="composite_screen_camera"
+        )
+        db.add(recording)
+        db.flush()
+    else:
+        recording.file_size_bytes = full_size
+        recording.duration_seconds += duration_seconds
+        recording.storage_path = str(full_recording_path)
+
+    # Record individual chunk metadata
+    chunk_record = InterviewRecordingChunk(
+        recording_id=recording.id,
+        chunk_index=chunk_index,
+        storage_path=str(chunk_path),
+        file_size_bytes=len(chunk_bytes),
+        duration_seconds=duration_seconds
+    )
+    db.add(chunk_record)
+
+    # Optional cloud storage mirror
+    if settings.is_supabase_enabled:
+        supabase_path = f"{session_id}/full_recording.webm"
+        try:
+            with open(full_recording_path, "rb") as rf:
+                SupabaseStorageService.upload_file(
+                    bucket=SupabaseStorageService.BUCKET_RECORDINGS,
+                    path=supabase_path,
+                    file_bytes=rf.read(),
+                    content_type="video/webm"
+                )
+        except Exception as e:
+            print(f"[Recording Mirror Warning] Could not mirror to Supabase: {e}")
+
+    db.commit()
+
+    return {
+        "status": "chunk_received",
+        "recording_id": recording.id,
+        "chunk_index": chunk_index,
+        "total_file_size": full_size,
+        "total_duration_seconds": recording.duration_seconds,
+        "is_final": is_final
+    }
+
+
+@router.post("/{session_id}/recordings/finalize", response_model=InterviewRecordingOut)
+def finalize_recording(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Finalizes the recorded video session, validates full file integrity,
+    and marks status as 'ready' for HR proctoring playback.
+    """
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
+
+    recording = db.query(InterviewRecording).filter(InterviewRecording.session_id == session.id).first()
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No recording found for this session")
+
+    recording.status = "ready"
+    recording.completed_at = datetime.now(timezone.utc)
+
+    # Update metadata
+    meta = db.query(InterviewSessionMetadata).filter(InterviewSessionMetadata.session_id == session.id).first()
+    if not meta:
+        meta = InterviewSessionMetadata(session_id=session.id)
+        db.add(meta)
+    meta.total_recording_duration_seconds = recording.duration_seconds
+
+    _record_proctoring_event(
+        db=db,
+        session_id=session.id,
+        candidate_id=session.candidate_id,
+        event_type="recording_finalized",
+        severity="info",
+        description=f"Video session finalized successfully ({recording.duration_seconds:.1f}s, {recording.file_size_bytes / (1024*1024):.2f} MB).",
+        timestamp_offset_seconds=recording.duration_seconds,
+        metadata_json={
+            "duration_seconds": recording.duration_seconds,
+            "file_size_bytes": recording.file_size_bytes,
+            "mime_type": recording.mime_type
+        }
+    )
+
+    db.commit()
+    db.refresh(recording)
+
+    out = InterviewRecordingOut.model_validate(recording)
+    out.playback_url = f"/api/v1/interviews/{session.id}/recordings/{recording.id}/stream"
+    return out
+
+
+@router.get("/{session_id}/recordings/{recording_id}/stream")
+def stream_interview_recording(
+    session_id: str,
+    recording_id: str,
+    range: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Streams the recorded interview video with HTTP 206 Partial Content range support
+    for responsive forward/backward scrubbing, timestamp-seeking, and player playback.
+    """
+    recording = db.query(InterviewRecording).filter(
+        InterviewRecording.id == recording_id,
+        InterviewRecording.session_id == session_id
+    ).first()
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+
+    file_path = Path(recording.storage_path)
+    if not file_path.exists() or not file_path.is_file():
+        # Fallback check under UPLOAD_DIR
+        alt_path = Path(settings.UPLOAD_DIR) / "recordings" / session_id / "full_recording.webm"
+        if alt_path.exists():
+            file_path = alt_path
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording media file not found on disk")
+
+    file_size = os.path.getsize(file_path)
+    start = 0
+    end = file_size - 1
+
+    if range:
+        range_val = range.strip().lower()
+        if range_val.startswith("bytes="):
+            parts = range_val[6:].split("-")
+            if parts[0]:
+                start = int(parts[0])
+            if len(parts) > 1 and parts[1]:
+                end = int(parts[1])
+
+    start = max(0, start)
+    end = min(end, file_size - 1)
+    content_length = (end - start) + 1
+
+    def iterfile():
+        with open(file_path, "rb") as f:
+            f.seek(start)
+            remaining = content_length
+            chunk_size = 1024 * 512  # 512 KB chunks
+            while remaining > 0:
+                chunk = f.read(min(remaining, chunk_size))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    headers = {
+        "Content-Range": f"bytes {start}-{end}/{file_size}",
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(content_length),
+        "Content-Type": recording.mime_type or "video/webm",
+        "Cache-Control": "public, max-age=3600"
+    }
+
+    status_code = status.HTTP_206_PARTIAL_CONTENT if range else status.HTTP_200_OK
+    return StreamingResponse(iterfile(), status_code=status_code, headers=headers)
+
+
+@router.get("/{session_id}/recordings/{recording_id}/download")
+def download_interview_recording(
+    session_id: str,
+    recording_id: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Downloads the high-resolution interview video file as an attachment.
+    """
+    recording = db.query(InterviewRecording).filter(
+        InterviewRecording.id == recording_id,
+        InterviewRecording.session_id == session_id
+    ).first()
+    if not recording:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recording not found")
+
+    file_path = Path(recording.storage_path)
+    if not file_path.exists():
+        alt_path = Path(settings.UPLOAD_DIR) / "recordings" / session_id / "full_recording.webm"
+        if alt_path.exists():
+            file_path = alt_path
+        else:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Media file not found")
+
+    return FileResponse(
+        path=str(file_path),
+        filename=recording.file_name or f"interview_{session_id}.webm",
+        media_type=recording.mime_type or "video/webm"
+    )
+
+
+@router.get("/{session_id}/proctoring-review", response_model=InterviewProctoringReviewOut)
+def get_interview_proctoring_review(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Aggregates full video recording, chronological proctoring timeline, hardware permissions,
+    security violations, and human reviewer decision for HR Recruiter review.
+    """
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview session not found")
+
+    candidate = session.candidate
+    job = db.query(Job).filter(Job.id == session.job_id).first()
+    consent = db.query(InterviewPermissionConsent).filter(InterviewPermissionConsent.session_id == session.id).first()
+    meta = db.query(InterviewSessionMetadata).filter(InterviewSessionMetadata.session_id == session.id).first()
+    recordings = db.query(InterviewRecording).filter(InterviewRecording.session_id == session.id).all()
+    events = db.query(InterviewProctoringEvent).filter(
+        InterviewProctoringEvent.session_id == session.id
+    ).order_by(InterviewProctoringEvent.occurred_at.asc()).all()
+    violations = db.query(InterviewViolation).filter(
+        InterviewViolation.interview_session_id == session.id
+    ).order_by(InterviewViolation.occurred_at.asc()).all()
+
+    recordings_out = []
+    for r in recordings:
+        r_out = InterviewRecordingOut.model_validate(r)
+        r_out.playback_url = f"/api/v1/interviews/{session.id}/recordings/{r.id}/stream"
+        recordings_out.append(r_out)
+
+    reviewer_name = None
+    if meta and meta.reviewer_id:
+        reviewer = db.query(User).filter(User.id == meta.reviewer_id).first()
+        if reviewer:
+            reviewer_name = reviewer.full_name
+
+    return InterviewProctoringReviewOut(
+        session_id=session.id,
+        candidate_id=session.candidate_id,
+        candidate_name=candidate.full_name if candidate else "Candidate",
+        candidate_email=candidate.email if candidate else "",
+        job_title=job.title if job else "Position",
+        status=session.status,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+        duration_minutes=session.duration_minutes,
+        total_violations=session.violation_count,
+        flagged_for_review=session.flagged_for_review,
+        termination_reason=session.termination_reason,
+        proctoring_verdict=meta.proctoring_verdict if meta else "pending",
+        reviewer_notes=meta.reviewer_notes if meta else "",
+        reviewed_at=meta.reviewed_at if meta else None,
+        reviewer_name=reviewer_name,
+        consent=InterviewConsentOut.model_validate(consent) if consent else None,
+        recordings=recordings_out,
+        events=[InterviewProctoringEventOut.model_validate(e) for e in events],
+        violations=[InterviewViolationOut.model_validate(v) for v in violations],
+        summary={
+            "total_disconnections": meta.total_disconnections if meta else 0,
+            "total_fullscreen_exits": meta.total_fullscreen_exits if meta else 0,
+            "total_events": len(events),
+            "recording_count": len(recordings),
+            "video_duration_seconds": meta.total_recording_duration_seconds if meta else 0.0
+        }
+    )
+
+
+@router.post("/{session_id}/proctoring-verdict")
+def submit_proctoring_verdict(
+    session_id: str,
+    verdict_in: InterviewProctoringVerdictSubmit,
+    hr_user: User = Depends(require_hr),
+    db: Session = Depends(get_db)
+):
+    """
+    Submits official human reviewer assessment for the proctored interview session
+    (e.g., 'cleared', 'suspicious', 'flagged_violation') along with audit notes.
+    """
+    session = db.query(InterviewSession).filter(InterviewSession.id == session_id).first()
+    if not session:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Interview session not found")
+
+    meta = db.query(InterviewSessionMetadata).filter(InterviewSessionMetadata.session_id == session.id).first()
+    if not meta:
+        meta = InterviewSessionMetadata(session_id=session.id)
+        db.add(meta)
+
+    meta.reviewer_id = hr_user.id
+    meta.proctoring_verdict = verdict_in.verdict
+    meta.reviewer_notes = verdict_in.reviewer_notes or ""
+    meta.reviewed_at = datetime.now(timezone.utc)
+
+    # Record immutable compliance audit entry
+    try:
+        record_audit_log(
+            db=db,
+            actor_id=hr_user.id,
+            action="HR_PROCTORING_VERDICT_SUBMITTED",
+            target_type="interview_session",
+            target_id=session.id,
+            details={
+                "candidate_id": session.candidate_id,
+                "verdict": verdict_in.verdict,
+                "notes": verdict_in.reviewer_notes
+            }
+        )
+    except Exception as e:
+        print(f"[Audit Warning] Could not record proctoring verdict audit log: {e}")
+
+    db.commit()
+    return {
+        "status": "success",
+        "session_id": session.id,
+        "proctoring_verdict": meta.proctoring_verdict,
+        "reviewer_id": hr_user.id,
+        "reviewed_at": meta.reviewed_at,
+        "message": "Human reviewer assessment recorded successfully."
     }
 

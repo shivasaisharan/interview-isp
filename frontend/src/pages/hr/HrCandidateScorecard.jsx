@@ -9,6 +9,7 @@ import {
   ChevronDown, ChevronUp, Lock, CheckSquare, MessageSquare, Sparkles, AlertCircle
 } from 'lucide-react';
 import api from '../../services/api';
+import HrProctoringReviewPlayer from '../../components/HrProctoringReviewPlayer';
 
 export default function HrCandidateScorecard() {
   const { applicationId, candidateId } = useParams();
@@ -513,8 +514,13 @@ export default function HrCandidateScorecard() {
         </div>
       )}
 
-      {/* Proctoring Security Audit Box */}
-      {security_audit && (
+      {/* Section G2: High-Fidelity Video Recording & Proctoring Timeline Inspection */}
+      {assessment_meta?.session_id ? (
+        <HrProctoringReviewPlayer
+          sessionId={assessment_meta.session_id}
+          candidateName={candidate?.name}
+        />
+      ) : security_audit && (
         <div className="p-6 rounded-3xl bg-slate-950 border border-slate-800 space-y-3 text-xs">
           <div className="flex items-center justify-between border-b border-slate-800 pb-3">
             <div className="flex items-center gap-2">
