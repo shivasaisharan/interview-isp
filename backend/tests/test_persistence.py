@@ -43,7 +43,11 @@ def test_candidate_resume_deletion(client):
     headers = {"Authorization": f"Bearer {token}"}
 
     # Upload a test resume to ensure at least one resume exists
-    pdf_content = b"%PDF-1.4 test sample content Python FastAPI Docker"
+    from app.services.resume_service import generate_professional_pdf_resume
+    pdf_content = generate_professional_pdf_resume(
+        candidate_name="Alex Chen",
+        skills=["Python", "FastAPI", "Docker"]
+    )
     upload_res = client.post(
         "/api/v1/candidate/resumes/upload",
         files={"file": ("test_resume.pdf", pdf_content, "application/pdf")},

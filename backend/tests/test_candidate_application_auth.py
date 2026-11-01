@@ -82,7 +82,11 @@ def test_candidate_application_auth_and_resume_suite(client):
     # -------------------------------------------------------------------------
     # SCENARIO 3: Candidate A uploads a PDF resume
     # -------------------------------------------------------------------------
-    pdf_content = b"%PDF-1.4 sample content with React, FastAPI, Python and SQL skills"
+    from app.services.resume_service import generate_professional_pdf_resume
+    pdf_content = generate_professional_pdf_resume(
+        candidate_name="Alice Cooper",
+        skills=["React", "FastAPI", "Python", "SQL"]
+    )
     upload_res = client.post(
         "/api/v1/candidate/resumes/upload",
         files={"file": ("Alice_Cooper_Resume.pdf", io.BytesIO(pdf_content), "application/pdf")},
@@ -103,7 +107,10 @@ def test_candidate_application_auth_and_resume_suite(client):
     assert resumes_list[0]["status"] == "Active"
 
     # Candidate B also uploads their own resume
-    b_pdf_content = b"%PDF-1.4 Bob Dylan CV machine learning and python"
+    b_pdf_content = generate_professional_pdf_resume(
+        candidate_name="Bob Dylan",
+        skills=["Machine Learning", "Python", "Docker"]
+    )
     b_upload = client.post(
         "/api/v1/candidate/resumes/upload",
         files={"file": ("Bob_Dylan_Resume.pdf", io.BytesIO(b_pdf_content), "application/pdf")},

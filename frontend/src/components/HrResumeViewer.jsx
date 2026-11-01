@@ -117,6 +117,10 @@ export default function HrResumeViewer({
           throw new Error('Empty resume file received from storage server.');
         }
 
+        if (pdfBlob.size < 250) {
+          throw new Error('Invalid PDF format: Document size is smaller than a valid PDF document specification.');
+        }
+
         // 3. Inspect magic bytes - Verify document begins with valid %PDF- signature
         const headerSlice = await pdfBlob.slice(0, 5).text();
         if (headerSlice !== '%PDF-') {
@@ -133,13 +137,29 @@ export default function HrResumeViewer({
           }
         }
 
+        // 4. Inspect structural integrity and extract page count
+        const textSnapshot = await pdfBlob.slice(0, Math.min(pdfBlob.size, 50000)).text();
+        const tailSnapshot = await pdfBlob.slice(Math.max(0, pdfBlob.size - 2048)).text();
+        if (!tailSnapshot.includes('%%EOF') && !textSnapshot.includes('/Page') && !tailSnapshot.includes('/Root')) {
+          throw new Error('Invalid PDF format: Document lacks structural xref table or EOF marker.');
+        }
+
+        const pageMatches = textSnapshot.match(/\/Type\s*\/Page\b/g);
+        const countMatches = textSnapshot.match(/\/Count\s+(\d+)/);
+        let detectedPages = 1;
+        if (countMatches && countMatches[1]) {
+          detectedPages = parseInt(countMatches[1], 10);
+        } else if (pageMatches && pageMatches.length > 0) {
+          detectedPages = pageMatches.length;
+        }
+
         if (!isMounted) return;
 
         cleanupBlob();
         const newUrl = URL.createObjectURL(new Blob([pdfBlob], { type: 'application/pdf' }));
         blobUrlRef.current = newUrl;
         setBlobUrl(newUrl);
-        setTotalPages(1);
+        setTotalPages(Math.max(1, detectedPages));
       } catch (err) {
         if (!isMounted) return;
         console.error('Error loading resume:', err);
@@ -465,11 +485,29 @@ export default function HrResumeViewer({
                 transformOrigin: 'top center'
               }}
             >
-              <iframe
-                src={blobUrl}
-                title={meta?.resume?.file_name || `${displayName} Resume`}
+              <object
+                data={`${blobUrl}#page=${currentPage}&zoom=${zoom}`}
+                type="application/pdf"
                 className="w-full h-full rounded-xl bg-slate-900 border border-slate-800 shadow-2xl"
-              />
+                title={meta?.resume?.file_name || `${displayName} Resume`}
+              >
+                <iframe
+                  src={`${blobUrl}#page=${currentPage}&zoom=${zoom}`}
+                  title={meta?.resume?.file_name || `${displayName} Resume`}
+                  className="w-full h-full rounded-xl bg-slate-900 border border-slate-800 shadow-2xl"
+                >
+                  <div className="p-8 text-center text-slate-300 flex flex-col items-center justify-center gap-4">
+                    <p className="text-sm font-semibold">Your browser does not support embedded PDF viewing.</p>
+                    <button
+                      onClick={handleDownload}
+                      className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 text-xs font-semibold text-white shadow-md flex items-center gap-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      Download {meta?.resume?.file_name || 'Resume'}
+                    </button>
+                  </div>
+                </iframe>
+              </object>
             </div>
           )}
         </div>

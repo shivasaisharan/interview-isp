@@ -177,11 +177,56 @@ You will deliver end-to-end features spanning modern React frontends, robust Fas
     db.refresh(job2)
 
     # 6. Seed Resumes
+    from app.services.resume_service import generate_professional_pdf_resume
+    
+    # Ensure physical demo PDFs exist on disk
+    alex_pdf_path = settings.UPLOAD_DIR / "demo_alex_chen.pdf"
+    if not alex_pdf_path.exists() or alex_pdf_path.stat().st_size < 500:
+        alex_bytes = generate_professional_pdf_resume(
+            candidate_name="Alex Chen",
+            title="Senior AI / Machine Learning Engineer",
+            email="alex.chen@example.com",
+            phone="+1 (555) 234-5678",
+            location="San Francisco, CA",
+            skills=["Python", "PyTorch", "FastAPI", "Docker", "Machine Learning", "Transformers", "Kubernetes"],
+            experience_years=5.5
+        )
+        with open(alex_pdf_path, "wb") as f:
+            f.write(alex_bytes)
+
+    elena_pdf_path = settings.UPLOAD_DIR / "demo_elena_rostova.pdf"
+    if not elena_pdf_path.exists() or elena_pdf_path.stat().st_size < 500:
+        elena_bytes = generate_professional_pdf_resume(
+            candidate_name="Elena Rostova",
+            title="Full Stack Cloud Software Engineer",
+            email="elena.rostova@example.com",
+            phone="+1 (555) 876-5432",
+            location="New York, NY",
+            skills=["React", "TypeScript", "Python", "FastAPI", "PostgreSQL", "AWS", "Docker"],
+            experience_years=4.0
+        )
+        with open(elena_pdf_path, "wb") as f:
+            f.write(elena_bytes)
+
+    marcus_pdf_path = settings.UPLOAD_DIR / "demo_marcus_vance.pdf"
+    if not marcus_pdf_path.exists() or marcus_pdf_path.stat().st_size < 500:
+        marcus_bytes = generate_professional_pdf_resume(
+            candidate_name="Marcus Vance",
+            title="Senior Backend Systems Engineer",
+            email="marcus.vance@example.com",
+            phone="+1 (555) 345-6789",
+            location="Austin, TX",
+            skills=["Python", "FastAPI", "PostgreSQL", "Redis", "Docker", "System Design"],
+            experience_years=3.5
+        )
+        with open(marcus_pdf_path, "wb") as f:
+            f.write(marcus_bytes)
+
     dummy_resume1 = ResumeFile(
         candidate_id=cand1.id,
         file_name="Alex_Chen_Senior_AI_Resume.pdf",
         file_path="uploads/demo_alex_chen.pdf",
-        file_size=142000,
+        file_size=alex_pdf_path.stat().st_size if alex_pdf_path.exists() else 142000,
         mime_type="application/pdf",
         parsed_text="Alex Chen. Senior AI Engineer with 5+ years of experience in Python, PyTorch, Transformers, FastAPI, Docker, and ML deployment.",
         extracted_skills=["Python", "PyTorch", "FastAPI", "Docker", "Machine Learning", "Transformers", "Kubernetes"],
@@ -194,7 +239,7 @@ You will deliver end-to-end features spanning modern React frontends, robust Fas
         candidate_id=cand2.id,
         file_name="Elena_Rostova_FullStack_Resume.pdf",
         file_path="uploads/demo_elena_rostova.pdf",
-        file_size=128000,
+        file_size=elena_pdf_path.stat().st_size if elena_pdf_path.exists() else 128000,
         mime_type="application/pdf",
         parsed_text="Elena Rostova. Full Stack Cloud Engineer with 4 years building React, TypeScript, FastAPI, PostgreSQL, and AWS applications.",
         extracted_skills=["React", "TypeScript", "Python", "FastAPI", "PostgreSQL", "AWS", "Docker"],
@@ -207,7 +252,7 @@ You will deliver end-to-end features spanning modern React frontends, robust Fas
         candidate_id=cand3.id,
         file_name="Marcus_Vance_Backend_Resume.pdf",
         file_path="uploads/demo_marcus_vance.pdf",
-        file_size=119000,
+        file_size=marcus_pdf_path.stat().st_size if marcus_pdf_path.exists() else 119000,
         mime_type="application/pdf",
         parsed_text="Marcus Vance. Backend Engineer with 3.5 years experience in Python, FastAPI, PostgreSQL, Redis, and Distributed Systems.",
         extracted_skills=["Python", "FastAPI", "PostgreSQL", "Redis", "Docker", "System Design"],

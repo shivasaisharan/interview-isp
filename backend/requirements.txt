@@ -17,3 +17,4 @@ supabase>=2.33.0
 psycopg2-binary>=2.9.9
 
 email-validator>=2.1.1
+reportlab>=4.0.0

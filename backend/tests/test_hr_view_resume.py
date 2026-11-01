@@ -107,7 +107,11 @@ def test_hr_view_resume_complete_suite(client):
     cand1_id = cand1_reg.json()["user"]["id"]
 
     # Candidate 1 uploads a valid PDF resume
-    sample_pdf_bytes = b"%PDF-1.4 sample resume content with Python FastAPI Kubernetes experience"
+    from app.services.resume_service import generate_professional_pdf_resume
+    sample_pdf_bytes = generate_professional_pdf_resume(
+        candidate_name="Accepted Candidate",
+        skills=["Python", "FastAPI", "Kubernetes"]
+    )
     upload_res = client.post(
         "/api/v1/candidate/resumes/upload",
         files={"file": ("candidate_one_resume.pdf", sample_pdf_bytes, "application/pdf")},
